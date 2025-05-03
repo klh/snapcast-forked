@@ -269,7 +269,9 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
         ClientInfoPtr client = Config::instance().getClientInfo(streamSession->clientId);
         if (client != nullptr)
         {
-            chronos::systemtimeofday(&client->lastSeen);
+            // Use steadytimeofday for consistent time handling across platforms
+            // This avoids timezone issues when calculating time differences
+            chronos::steadytimeofday(&client->lastSeen);
             client->connected = true;
         }
     }
