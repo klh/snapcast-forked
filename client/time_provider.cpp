@@ -46,7 +46,8 @@ void TimeProvider::setDiff(const tv& c2s, const tv& s2c)
 void TimeProvider::setDiffToServer(double ms)
 {
     using namespace std::chrono_literals;
-    auto now = std::chrono::system_clock::now();
+    // Use steady_clock consistently for time synchronization to avoid timezone issues
+    auto now = chronos::clk::now();
     static auto lastTimeSync = now;
     auto diff = chronos::abs(now - lastTimeSync);
 
