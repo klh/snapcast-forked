@@ -110,6 +110,7 @@ struct tv
     tv()
     {
         timeval t;
+        // Always use steady clock for time synchronization to avoid timezone issues
         chronos::steadytimeofday(&t);
         sec = t.tv_sec;
         usec = t.tv_usec;
