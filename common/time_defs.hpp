@@ -39,7 +39,6 @@
 namespace chronos
 {
 // For time synchronization, we want to use a monotonic clock that's not affected by system time changes
-// On all platforms, we'll try to use steady_clock when possible
 #ifndef WINDOWS
 using clk = std::chrono::steady_clock;
 #else
