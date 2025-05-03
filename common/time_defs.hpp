@@ -38,11 +38,14 @@
 
 namespace chronos
 {
-using clk =
+// For time synchronization, we want to use a monotonic clock that's not affected by system time changes
+// On all platforms, we'll try to use steady_clock when possible
 #ifndef WINDOWS
-    std::chrono::steady_clock;
+using clk = std::chrono::steady_clock;
 #else
-    std::chrono::system_clock;
+// Windows may not have a reliable steady_clock implementation in older versions
+// But we'll still use it for newer Windows versions that support it properly - this EDIT will remove support for legacy (pre 10 windows versions)
+using clk = std::chrono::steady_clock;
 #endif
 using time_point_clk = std::chrono::time_point<clk>;
 using sec = std::chrono::seconds;
