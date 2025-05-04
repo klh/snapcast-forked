@@ -257,10 +257,17 @@ protected:
         writeVal(stream, c);
     }
 
-    /// serialize a const char* @p val to @p stream
+    /// serialize a char @p val to @p stream
     void writeVal(std::ostream& stream, const char& val) const
     {
         stream.write(reinterpret_cast<const char*>(&val), sizeof(char));
+    }
+    
+    /// serialize an uint8_t @p val to @p stream
+    void writeVal(std::ostream& stream, const uint8_t& val) const
+    {
+        // uint8_t is just an unsigned char, so we can use the char serialization
+        stream.write(reinterpret_cast<const char*>(&val), sizeof(uint8_t));
     }
 
     /// serialize an uint16 @p val to @p stream
@@ -334,6 +341,13 @@ protected:
     void readVal(std::istream& stream, char& val) const
     {
         stream.read(reinterpret_cast<char*>(&val), sizeof(char));
+    }
+    
+    /// Deserialize an uint8_t @p val from @p stream
+    void readVal(std::istream& stream, uint8_t& val) const
+    {
+        // uint8_t is just an unsigned char, so we can use the char deserialization
+        stream.read(reinterpret_cast<char*>(&val), sizeof(uint8_t));
     }
 
     /// Deserialize an uint16 @p val from @p stream
