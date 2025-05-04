@@ -19,11 +19,13 @@
 #pragma once
 
 // standard headers
-#include <chrono>
 #include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
+
+// local headers
+#include "time_defs.hpp"
 
 namespace time_sync {
 
@@ -127,7 +129,7 @@ TimeSyncSource intToTimeSource(int source_int);
  */
 struct TimeValue {
     TimeSyncSource source;              ///< The time source used
-    std::chrono::system_clock::time_point timestamp; ///< The timestamp
+    chronos::time_point_clk timestamp; ///< The timestamp using the chronos clock
     std::string raw;                   ///< Raw output from the time source
     float quality = 0.5f;              ///< Quality metric (0.0-1.0, higher is better)
     float estimated_error_ms = 50.0f;  ///< Estimated error in milliseconds

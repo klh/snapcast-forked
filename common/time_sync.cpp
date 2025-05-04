@@ -18,6 +18,7 @@
 
 #include "time_sync.hpp"
 #include "aixlog.hpp"
+#include "time_defs.hpp"
 
 #include <algorithm>
 #include <array>
@@ -267,26 +268,39 @@ TimeSyncSource intToTimeSource(int source_int)
  */
 static TimeValue queryTimeSource(TimeSyncSource source) {
     std::string raw;
-    auto now = std::chrono::system_clock::now();
-
-    switch (source) {
-        case TimeSyncSource::CHRONY:
-            raw = execCommand("chronyc tracking 2>/dev/null");
-            break;
-        case TimeSyncSource::PTP:
-            raw = execCommand("pmc -u -b 0 'GET TIME_STATUS_NP' 2>/dev/null");
-            break;
-        case TimeSyncSource::NTP:
-            raw = execCommand("ntpq -c rl 2>/dev/null");
-            break;
-        case TimeSyncSource::MONOTONIC:
-            raw = "monotonic";
-            break;
-        case TimeSyncSource::SYSTEM:
-            raw = "system_clock";
-            break;
-        default:
-            throw std::runtime_error("Invalid time source.");
+    chronos::time_point_clk now;
+    
+    // Use the appropriate chronos time function based on the source
+    if (source == TimeSyncSource::MONOTONIC) {
+        now = chronos::clk::now(); // Use monotonic clock
+        raw = "monotonic";
+    } else if (source == TimeSyncSource::SYSTEM) {
+        // Convert system time to chronos time_point_clk
+        struct timeval tv;
+        chronos::systemtimeofday(&tv);
+        auto duration = chronos::usec(tv.tv_sec * 1000000LL + tv.tv_usec);
+        now = chronos::time_point_clk(duration);
+        raw = "system_clock";
+    } else {
+        // For external time sources, use the system time but get the raw output
+        struct timeval tv;
+        chronos::systemtimeofday(&tv);
+        auto duration = chronos::usec(tv.tv_sec * 1000000LL + tv.tv_usec);
+        now = chronos::time_point_clk(duration);
+        
+        switch (source) {
+            case TimeSyncSource::CHRONY:
+                raw = execCommand("chronyc tracking 2>/dev/null");
+                break;
+            case TimeSyncSource::PTP:
+                raw = execCommand("pmc -u -b 0 'GET TIME_STATUS_NP' 2>/dev/null");
+                break;
+            case TimeSyncSource::NTP:
+                raw = execCommand("ntpq -c rl 2>/dev/null");
+                break;
+            default:
+                throw std::runtime_error("Invalid time source.");
+        }
     }
 
     if (raw.empty() && source != TimeSyncSource::MONOTONIC && source != TimeSyncSource::SYSTEM) {
