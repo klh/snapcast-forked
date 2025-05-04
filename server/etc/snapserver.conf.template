@@ -1,0 +1,96 @@
+###############################################################################
+#     ______                                                            #
+#    / _____)                                                           #
+#   ( (____   ____   _____  ____    ___  _____   ____  _   _  _____    #
+#    \____ \ |  _ \ (____ ||  _ \  /___)| ___ | / ___)| | | || ___ |   #
+#    _____) )| | | |/ ___ || |_| ||___ || ____|| |    | |_| || ____|   #
+#   (______/ |_| |_|\_____||  __/ (___/ |_____)|_|     \__  ||_____)   #
+#                          |_|                         (____/           #
+#                                                                       #
+#  Snapserver config file                                               #
+#                                                                       #
+###############################################################################
+
+# Default values are commented
+# Uncomment and edit to change them
+
+[server]
+# Number of server threads
+#threads = -1
+# Server data directory
+#datadir = /var/lib/snapserver
+# PID file when running as daemon
+#pidfile = /var/run/snapserver/pid
+# User to run daemon as
+#user = snapserver
+# Group to run daemon as
+#group = snapserver
+
+[http]
+# Enable HTTP server
+#enabled = true
+# Address to listen on
+#bind_to_address = 0.0.0.0
+# Port to listen on
+#port = 1780
+# Enable HTTPS server
+#ssl_enabled = false
+# Address to listen on
+#ssl_bind_to_address = 0.0.0.0
+# Port to listen on
+#ssl_port = 1788
+# Document root for HTTP server
+#doc_root = 
+# Host name used in URLs
+#host = <hostname>
+# URL prefix used in URLs
+#url_prefix = 
+
+[tcp]
+# Enable TCP server
+#enabled = true
+# Address to listen on
+#bind_to_address = 0.0.0.0
+# Port to listen on
+#port = 1705
+
+[stream]
+# Address to listen on
+#bind_to_address = 0.0.0.0
+# Port to listen on
+#port = 1704
+# Source stream URI
+#source = pipe:///tmp/snapfifo?name=default
+# Default sample format
+#sampleformat = 48000:16:2
+# Default codec
+#codec = flac
+# Default stream buffer [ms]
+#buffer = 1000
+# Send audio to muted clients
+#send_to_muted = false
+
+[time_sync]
+# Preferred time synchronization source (0=CHRONY, 1=PTP, 2=NTP, 3=MONOTONIC, 255=AUTO)
+#preferred_source = 255
+
+# Server time synchronization mode
+# auto_select: Automatically select best available source
+# fixed: Use only the preferred source
+# client_guided: Let clients decide based on their capabilities
+#mode = auto_select
+
+# Minimum quality threshold (0.0-1.0) for a time source to be considered valid
+#min_quality = 0.3
+
+# Allow clients to override server time source suggestions
+#allow_client_override = true
+
+# Maximum allowed time difference in milliseconds before forcing resync
+#max_time_diff_ms = 500
+
+[logging]
+# Log sink [null,system,stdout,stderr,file:<filename>]
+#sink = system
+# Log filter <tag>:<level>[,<tag>:<level>]* with tag = * or <log tag> and level = [trace,debug,info,notice,warning,error,fatal]
+#filter = *:info

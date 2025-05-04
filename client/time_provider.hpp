@@ -20,6 +20,7 @@
 
 
 // local headers
+#include "client_settings.hpp"
 #include "common/message/message.hpp"
 #include "common/time_defs.hpp"
 #include "double_buffer.hpp"
@@ -29,6 +30,7 @@
 // standard headers
 #include <atomic>
 #include <chrono>
+#include <mutex>
 
 
 /// Provides local and server time
@@ -48,6 +50,18 @@ public:
 
     void setDiffToServer(double ms);
     void setDiff(const tv& c2s, const tv& s2c);
+    
+    /// Negotiate the best time synchronization source with the server
+    void negotiateSyncSource(const TimeSyncInfo& server_info);
+    
+    /// Set fallback mode for backward compatibility with older servers
+    void setFallbackMode(const TimeSyncInfo& fallback_info);
+
+    /// Set the preferred time synchronization source
+    void setPreferredSyncSource(TimeSyncSource source);
+
+    /// Configure the time provider with client settings
+    void configure(const ClientSettings::TimeSync& settings);
 
     template <typename T>
     inline T getDiffToServer() const
@@ -86,6 +100,23 @@ private:
     TimeProvider(TimeProvider const&);   // Don't Implement
     void operator=(TimeProvider const&); // Don't implement
 
+    // Detect available time sources on the system
+    void detectAvailableTimeSources();
+    
+    // Select the best available time source
+    void selectBestTimeSource();
+    
+    // Get current time using the selected time source
+    chronos::time_point_clk getCurrentTime();
+
     DoubleBuffer<chronos::usec::rep> diffBuffer_;
     std::atomic<chronos::usec::rep> diffToServer_;
+    
+    // Thread safety
+    mutable std::mutex mutex_;
+    
+    // Time source management
+    TimeSyncSource preferred_source_;
+    TimeSyncSource current_source_;
+    std::map<TimeSyncSource, TimeSyncInfo> time_sources_;
 };

@@ -160,6 +160,33 @@ struct ServerSettings
         /// log filter
         std::string filter{"*:info"};
     };
+    
+    /// Time synchronization settings
+    struct TimeSync
+    {
+        /// Preferred time synchronization source (0=CHRONY, 1=PTP, 2=NTP, 3=MONOTONIC, 255=AUTO)
+        int preferred_source{255};
+        
+        /// Server time synchronization mode
+        enum class Mode
+        {
+            auto_select,    ///< Automatically select best available source
+            fixed,          ///< Use only the preferred source
+            client_guided   ///< Let clients decide based on their capabilities
+        };
+        
+        /// The time synchronization mode
+        Mode mode{Mode::auto_select};
+        
+        /// Minimum quality threshold (0.0-1.0) for a time source to be considered valid
+        double min_quality{0.3};
+        
+        /// Allow clients to override server time source suggestions
+        bool allow_client_override{true};
+        
+        /// Maximum allowed time difference in milliseconds before forcing resync
+        int max_time_diff_ms{500};
+    };
 
     Server server;                   ///< Server settings
     Ssl ssl;                         ///< SSL settings
@@ -168,5 +195,6 @@ struct ServerSettings
     Tcp tcp;                         ///< TCP settings
     Stream stream;                   ///< Stream settings
     StreamingClient streamingclient; ///< Client settings
+    TimeSync time_sync;              ///< Time synchronization settings
     Logging logging;                 ///< Logging settings
 };

@@ -261,16 +261,53 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
         timeMsg->deserialize(baseMessage, buffer);
         timeMsg->refersTo = timeMsg->id;
         timeMsg->latency = timeMsg->received - timeMsg->sent;
-        // LOG(INFO, LOG_TAG) << "Latency sec: " << timeMsg.latency.sec << ", usec: " << timeMsg.latency.usec << ", refers to: " << timeMsg.refersTo <<
-        // "\n";
-        streamSession->send(timeMsg);
+        
+        // Check if this is an old client (protocol version will be V1 if the client didn't send a version)
+        bool isOldClient = (timeMsg->protocol_version == msg::Time::ProtocolVersion::V1);
+        
+        if (isOldClient) {
+            // For old clients, use the original solution - just send back the latency
+            LOG(DEBUG, LOG_TAG) << "Time sync: Old client detected (id: " << streamSession->clientId 
+                               << "), using original protocol\n";
+            
+            // Don't add any V2 fields, just send the message back
+            streamSession->send(timeMsg);
+        } else {
+            // For new clients, use the enhanced protocol with time source information
+            // Get client's time source information from the message
+            msg::TimeSyncSource clientTimeSource = timeMsg->time_source;
+            float clientTimeQuality = timeMsg->time_quality;
+            float clientTimeError = timeMsg->estimated_error_ms;
+            
+            // Add server's time source information to the response
+            msg::TimeSyncSource serverTimeSource = detectServerTimeSource();
+            timeMsg->time_source = serverTimeSource;
+            timeMsg->time_quality = getTimeSourceQuality(serverTimeSource);
+            timeMsg->estimated_error_ms = getTimeSourceError(serverTimeSource);
+            
+            LOG(DEBUG, LOG_TAG) << "Time sync: Client " << streamSession->clientId 
+                               << ", latency sec: " << timeMsg->latency.sec << ", usec: " << timeMsg->latency.usec 
+                               << ", client time source: " << static_cast<int>(clientTimeSource) 
+                               << ", quality: " << clientTimeQuality 
+                               << ", server time source: " << static_cast<int>(serverTimeSource) 
+                               << ", quality: " << timeMsg->time_quality << "\n";
+            
+            streamSession->send(timeMsg);
+            
+            // Store client's time source information if this is a new client
+            ClientInfoPtr client = Config::instance().getClientInfo(streamSession->clientId);
+            if (client != nullptr) {
+                client->time_source = static_cast<int>(clientTimeSource);
+                client->time_quality = clientTimeQuality;
+                client->time_error_ms = clientTimeError;
+            }
+        }
 
-        // refresh streamSession state
+        // Refresh streamSession state regardless of client version
         ClientInfoPtr client = Config::instance().getClientInfo(streamSession->clientId);
         if (client != nullptr)
         {
             // Use steadytimeofday for consistent time handling across platforms
-            // This avoids timezone issues when calculating time differences
             chronos::steadytimeofday(&client->lastSeen);
             client->connected = true;
         }

@@ -4,6 +4,10 @@ set(CLIENT_SOURCES
     snapclient.cpp
     stream.cpp
     time_provider.cpp
+    time_provider_sync.cpp
+    time_provider_thread_safe.cpp
+    time_provider_config.cpp
+    time_provider_fallback.cpp
     decoder/pcm_decoder.cpp
     decoder/null_decoder.cpp
     player/player.cpp

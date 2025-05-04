@@ -109,6 +109,34 @@ struct ClientSettings
         std::string filter{"*:info"};
     };
 
+    /// Time synchronization settings
+    struct TimeSync
+    {
+        /// Preferred time synchronization source (0=CHRONY, 1=PTP, 2=NTP, 3=MONOTONIC, 255=AUTO)
+        int preferred_source{255};
+        
+        /// Time synchronization mode
+        enum class Mode
+        {
+            auto_select,    ///< Automatically select best available source
+            server_guided,  ///< Let server guide source selection
+            fixed,          ///< Use only the preferred source
+            disabled        ///< Disable time synchronization (use local time)
+        };
+        
+        /// The time synchronization mode
+        Mode mode{Mode::auto_select};
+        
+        /// Time synchronization interval in milliseconds
+        int sync_interval{1000};
+        
+        /// Number of quick syncs at startup (higher frequency sync to establish initial sync)
+        int quick_sync_count{10};
+        
+        /// Minimum quality threshold (0.0-1.0) to accept a time source
+        double min_quality{0.3};
+    };
+
     /// The snapclient process instance
     size_t instance{1};
     /// The host id, presented to the server
@@ -118,6 +146,8 @@ struct ClientSettings
     Server server;
     /// Player settings
     Player player;
+    /// Time synchronization settings
+    TimeSync time_sync;
     /// Logging settings
     Logging logging;
 };

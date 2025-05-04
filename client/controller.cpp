@@ -310,6 +310,13 @@ void Controller::getNextMessage()
 void Controller::sendTimeSyncMessage(int quick_syncs)
 {
     auto timeReq = std::make_shared<msg::Time>();
+    // Set protocol version to V2 for enhanced time sync
+    timeReq->protocol_version = msg::Time::ProtocolVersion::V2;
+    // Include client's time source information in the request
+    TimeSyncInfo syncInfo = TimeProvider::getInstance().getSyncInfo();
+    timeReq->time_source = static_cast<msg::TimeSyncSource>(syncInfo.source);
+    timeReq->time_quality = syncInfo.quality;
+    timeReq->estimated_error_ms = syncInfo.estimated_error_ms;
     clientConnection_->sendRequest<msg::Time>(timeReq, 2s,
                                               [this, quick_syncs](const boost::system::error_code& ec, const std::unique_ptr<msg::Time>& response) mutable
     {
@@ -321,7 +328,39 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
         }
         else
         {
+            // Process time difference
             TimeProvider::getInstance().setDiff(response->latency, response->received - response->sent);
+            
+            // Check if we're communicating with an older server (protocol version will be V1)
+            bool isOldServer = (response->protocol_version == msg::Time::ProtocolVersion::V1);
+            
+            if (isOldServer) {
+                // For old servers, just use the basic time sync without time source negotiation
+                LOG(DEBUG, LOG_TAG) << "Time sync: Old server detected, using original protocol\n";
+                
+                // Set default time source to monotonic for backward compatibility
+                TimeSyncInfo defaultInfo;
+                defaultInfo.source = TimeSyncSource::MONOTONIC;
+                defaultInfo.quality = 0.5;
+                defaultInfo.estimated_error_ms = 50.0;
+                defaultInfo.available = true;
+                
+                // Use monotonic clock as fallback
+                TimeProvider::getInstance().setFallbackMode(defaultInfo);
+            } else {
+                // For new servers, negotiate time source with server
+                TimeSyncInfo serverInfo;
+                serverInfo.source = static_cast<TimeSyncSource>(response->time_source);
+                serverInfo.quality = response->time_quality;
+                serverInfo.estimated_error_ms = response->estimated_error_ms;
+                serverInfo.available = true;
+                
+                TimeProvider::getInstance().negotiateSyncSource(serverInfo);
+                
+                LOG(DEBUG, LOG_TAG) << "Server time source: " << static_cast<int>(response->time_source) 
+                                   << ", quality: " << response->time_quality 
+                                   << ", error: " << response->estimated_error_ms << " ms\n";
+            }
         }
 
         std::chrono::microseconds next = TIME_SYNC_INTERVAL;
