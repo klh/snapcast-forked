@@ -341,7 +341,13 @@ TimeValue getTime(TimeSyncSource specific, const std::vector<TimeSyncSource>& pr
     // If all else fails, fall back to system time
     LOG(WARNING, LOG_TAG) << "No valid time sources available, falling back to system time\n";
     try {
-        return TimeValue{TimeSyncSource::SYSTEM, std::chrono::system_clock::now(), "fallback_system_time"};
+        // Use chronos utilities to get system time
+        struct timeval tv;
+        chronos::systemtimeofday(&tv);
+        auto duration = chronos::usec(tv.tv_sec * 1000000LL + tv.tv_usec);
+        chronos::time_point_clk now(duration);
+        
+        return TimeValue{TimeSyncSource::SYSTEM, now, "fallback_system_time"};
     } catch (const std::exception& e) {
         LOG(ERROR, LOG_TAG) << "Critical error: Failed to get system time: " << e.what() << "\n";
         throw std::runtime_error("No valid time sources available.");
