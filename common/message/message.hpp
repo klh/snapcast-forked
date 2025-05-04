@@ -297,6 +297,15 @@ protected:
         uint32_t v = SWAP_32(val);
         stream.write(reinterpret_cast<const char*>(&v), sizeof(int32_t));
     }
+    
+    /// serialize a float @p val to @p stream
+    void writeVal(std::ostream& stream, const float& val) const
+    {
+        // Convert float to int32 bits and then serialize
+        union { float f; int32_t i; } u;
+        u.f = val;
+        writeVal(stream, u.i);
+    }
 
     /// serialize a char* string @p payload of @p size to @p stream
     void writeVal(std::ostream& stream, const char* payload, const uint32_t& size) const
@@ -362,8 +371,16 @@ protected:
     void readVal(std::istream& stream, int32_t& val) const
     {
         stream.read(reinterpret_cast<char*>(&val), sizeof(int32_t));
-        // cppcheck-suppress selfAssignment
         val = SWAP_32(val);
+    }
+    
+    /// deserialize a float from @p stream to @p val
+    void readVal(std::istream& stream, float& val) const
+    {
+        // Read as int32 bits and then convert to float
+        union { float f; int32_t i; } u;
+        readVal(stream, u.i);
+        val = u.f;
     }
 
     /// Deserialize a char* string @p payload of @p size from @p stream
