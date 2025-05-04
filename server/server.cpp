@@ -261,8 +261,71 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
         timeMsg->deserialize(baseMessage, buffer);
         timeMsg->refersTo = timeMsg->id;
         timeMsg->latency = timeMsg->received - timeMsg->sent;
-        // LOG(INFO, LOG_TAG) << "Latency sec: " << timeMsg.latency.sec << ", usec: " << timeMsg.latency.usec << ", refers to: " << timeMsg.refersTo <<
-        // "\n";
+        
+        // Handle protocol versioning for time synchronization
+        if (timeMsg->type == message_type::kTime && timeMsg->size > sizeof(msg::BaseMessage))
+        {
+            // Use the shared implementation to ensure valid protocol version
+            // This will default to V1 if no version is specified
+            time_sync::ProtocolVersion protocol_version = time_sync::ensureValidProtocolVersion(timeMsg->version);
+            timeMsg->version = static_cast<uint8_t>(protocol_version);
+            
+            // Check if client is using V2+ protocol
+            if (protocol_version >= time_sync::ProtocolVersion::V2)
+            {
+                // Enhanced protocol - include time source information in response
+                LOG(DEBUG, LOG_TAG) << "Client using time sync protocol V" << static_cast<int>(timeMsg->version) << "\n";
+                
+                // Get client time source information
+                time_sync::TimeSyncSource client_source = static_cast<time_sync::TimeSyncSource>(timeMsg->source);
+                float client_quality = timeMsg->quality;
+                
+                LOG(DEBUG, LOG_TAG) << "Client time source: " << time_sync::timeSourceToString(client_source) 
+                                   << ", quality: " << client_quality << "\n";
+                
+                try {
+                    // Get information about all time sources using the shared implementation
+                    auto time_sources = time_sync::getAllTimeSourcesInfo();
+                    
+                    // Use the time_sync implementation to select the best source
+                    time_sync::TimeSyncSource server_source = time_sync::selectBestTimeSource(time_sources);
+                    
+                    // Get the quality and error from the time_sources map
+                    auto it = time_sources.find(server_source);
+                    if (it == time_sources.end()) {
+                        throw std::runtime_error("Selected time source not found");
+                    }
+                    
+                    // Set the response fields
+                    timeMsg->version = static_cast<uint8_t>(time_sync::ProtocolVersion::V2);
+                    timeMsg->source = static_cast<uint8_t>(server_source);
+                    timeMsg->quality = it->second.quality;
+                    timeMsg->error_ms = it->second.estimated_error_ms;
+                    
+                    LOG(DEBUG, LOG_TAG) << "Server using time source: " 
+                                       << time_sync::timeSourceToString(server_source) 
+                                       << ", quality: " << it->second.quality << "\n";
+                } catch (const std::exception& e) {
+                    LOG(WARNING, LOG_TAG) << "Error getting time: " << e.what() << ", using system time\n";
+                    
+                    // Fall back to system time using the shared implementation for consistency
+                    time_sync::TimeSyncInfo fallback = time_sync::getDefaultQualityMetrics(time_sync::TimeSyncSource::SYSTEM);
+                    
+                    // Set fallback values
+                    timeMsg->version = static_cast<uint8_t>(time_sync::ProtocolVersion::V2);
+                    timeMsg->source = static_cast<uint8_t>(time_sync::TimeSyncSource::SYSTEM);
+                    timeMsg->quality = fallback.quality;
+                    timeMsg->error_ms = fallback.estimated_error_ms;
+                }
+            }
+            else
+            {
+                // Legacy protocol - only include latency information
+                LOG(DEBUG, LOG_TAG) << "Client using legacy time sync protocol V1\n";
+                timeMsg->version = static_cast<uint8_t>(time_sync::ProtocolVersion::V1);
+            }
+        }
+        
         streamSession->send(timeMsg);
 
         // refresh streamSession state

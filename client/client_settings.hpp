@@ -20,6 +20,7 @@
 
 // local headers
 #include "common/sample_format.hpp"
+#include "common/time_sync.hpp"
 #include "player/pcm_device.hpp"
 
 // standard headers
@@ -109,6 +110,31 @@ struct ClientSettings
         std::string filter{"*:info"};
     };
 
+    /// Time synchronization settings
+    struct TimeSync
+    {
+        /// Preferred time synchronization source (0=CHRONY, 1=PTP, 2=NTP, 3=MONOTONIC, 4=SYSTEM, 255=AUTO)
+        int preferred_source{255};
+        
+        /// The time synchronization mode
+        time_sync::SyncMode mode{time_sync::SyncMode::auto_select};
+        
+        /// Time synchronization interval in milliseconds
+        int sync_interval{1000};
+        
+        /// Number of quick syncs at startup (higher frequency sync to establish initial sync)
+        int quick_sync_count{10};
+        
+        /// Minimum quality threshold (0.0-1.0) to accept a time source
+        double min_quality{0.3};
+        
+        /// Allow server to override client time source selection
+        bool allow_server_override{true};
+        
+        /// Maximum time difference in milliseconds before forcing a resync
+        int max_time_diff_ms{100};
+    };
+
     /// The snapclient process instance
     size_t instance{1};
     /// The host id, presented to the server
@@ -118,6 +144,8 @@ struct ClientSettings
     Server server;
     /// Player settings
     Player player;
+    /// Time synchronization settings
+    TimeSync time_sync;
     /// Logging settings
     Logging logging;
 };

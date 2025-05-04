@@ -196,6 +196,13 @@ int main(int argc, char** argv)
 #endif
         mixer_mode = op.add<Value<string>>("", "mixer", mixers + "|none|?[:<options>]", "software");
 
+// time synchronization settings
+        auto time_source_opt = op.add<Value<int>>("", "timesource", "Preferred time source [0=CHRONY, 1=PTP, 2=NTP, 3=MONOTONIC, 4=SYSTEM, 255=AUTO]", 255, &settings.time_sync.preferred_source);
+        auto time_mode_opt = op.add<Value<string>>("", "timemode", "Time synchronization mode [auto_select|fixed|client_guided|server_guided|disabled]", "auto_select");
+        op.add<Value<int>>("", "timesync-interval", "Time synchronization interval in milliseconds", 1000, &settings.time_sync.sync_interval);
+        op.add<Value<double>>("", "timesync-quality", "Minimum quality threshold (0.0-1.0) to accept a time source", 0.3, &settings.time_sync.min_quality);
+        op.add<Switch>("", "allow-server-override", "Allow server to override client time source selection", &settings.time_sync.allow_server_override);
+
 // daemon settings
 #ifdef HAS_DAEMON
         int processPriority(-3);
@@ -501,6 +508,29 @@ int main(int argc, char** argv)
 #endif
         else if (mode == "none")
             settings.player.mixer.mode = ClientSettings::Mixer::Mode::none;
+        else if ((mode == "?") || (mode == "help"))
+
+        // Process time synchronization settings
+        if (time_mode_opt->is_set())
+        {
+            string time_mode = time_mode_opt->value();
+            settings.time_sync.mode = time_sync::stringToSyncMode(time_mode);
+            
+            // If time source is set and mode is auto_select, change to fixed mode
+            if (time_source_opt->is_set() && settings.time_sync.mode == time_sync::SyncMode::auto_select)
+            {
+                settings.time_sync.mode = time_sync::SyncMode::fixed;
+                LOG(INFO, LOG_TAG) << "Time source specified, setting mode to 'fixed'\n";
+            }
+            
+            LOG(INFO, LOG_TAG) << "Time sync mode: " << time_sync::syncModeToString(settings.time_sync.mode) << "\n";
+        }
+        
+        if (time_source_opt->is_set())
+        {
+            LOG(INFO, LOG_TAG) << "Time source: " << settings.time_sync.preferred_source << "\n";
+        }
+        
         else if ((mode == "?") || (mode == "help"))
         {
             cout << "mixer can be one of 'software', " << (hw_mixer_supported ? "'hardware', " : "")
