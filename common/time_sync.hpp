@@ -156,6 +156,33 @@ ProtocolVersion ensureValidProtocolVersion(uint8_t version);
 std::map<TimeSyncSource, TimeSyncInfo> getAllTimeSourcesInfo();
 
 /**
+ * Structure containing comprehensive time status information
+ */
+struct TimeStatus
+{
+    TimeSyncSource active_source;       // Currently active time source
+    TimeSyncInfo active_source_info;    // Info about the active source
+    TimeValue current_time;             // Current time value
+    std::map<TimeSyncSource, TimeSyncInfo> available_sources; // All available sources
+    ProtocolVersion protocol_version;   // Protocol version in use
+    double diff_ms{0};                  // Time difference in ms (for client)
+};
+
+/**
+ * Get comprehensive time status information
+ * @param diff_ms Optional time difference to server in microseconds (for client)
+ * @return TimeStatus object with all time-related information
+ */
+TimeStatus getTimeStatus(double diff_ms = 0);
+
+/**
+ * Generate log messages for time status
+ * @param status The TimeStatus object containing time information
+ * @param log_tag The tag to use for logging
+ */
+void logTimeStatus(const TimeStatus& status, const std::string& log_tag);
+
+/**
  * Get current time from the best available or specified time source
  * @param specific Specific time source to use (NONE for auto-selection)
  * @param preferred Ordered list of preferred time sources to try

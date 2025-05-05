@@ -431,4 +431,62 @@ std::map<TimeSyncSource, TimeSyncInfo> getAllTimeSourcesInfo()
     return time_sources;
 }
 
+TimeStatus getTimeStatus(double diff_ms)
+{
+    TimeStatus status;
+    
+    // Get all available time sources
+    status.available_sources = getAllTimeSourcesInfo();
+    
+    // Get current time from best available source
+    status.current_time = getTime();
+    status.active_source = status.current_time.source;
+    
+    // Set active source info
+    auto it = status.available_sources.find(status.active_source);
+    if (it != status.available_sources.end()) {
+        status.active_source_info = it->second;
+    } else {
+        // Fallback if source not in available_sources
+        status.active_source_info = getDefaultQualityMetrics(status.active_source);
+    }
+    
+    // Set protocol version (default to V1)
+    status.protocol_version = ProtocolVersion::V1;
+    
+    // Set time difference (for client)
+    status.diff_ms = diff_ms;
+    
+    return status;
+}
+
+void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
+{
+    // Log active time source and its quality
+    LOG(NOTICE, log_tag) << "Time synchronization initialized using " 
+                        << timeSourceToString(status.active_source) 
+                        << " (quality: " << status.active_source_info.quality 
+                        << ", estimated error: " << status.active_source_info.estimated_error_ms << "ms)";
+    
+    // Log current time information
+    LOG(INFO, log_tag) << "Current time source: " 
+                      << timeSourceToString(status.current_time.source) 
+                      << ", quality: " << status.current_time.quality 
+                      << ", error: " << status.current_time.estimated_error_ms << "ms";
+    
+    // Log protocol version if V2 or higher
+    if (status.protocol_version > ProtocolVersion::V1) {
+        LOG(INFO, log_tag) << "Time sync protocol version: V" 
+                          << static_cast<int>(status.protocol_version);
+        
+        // Log time difference if available
+        if (status.diff_ms != 0) {
+            LOG(INFO, log_tag) << "Time difference to server: " 
+                              << status.diff_ms << "ms";
+        }
+    } else {
+        LOG(INFO, log_tag) << "Using legacy time sync protocol V1";
+    }
+}
+
 } // namespace time_sync

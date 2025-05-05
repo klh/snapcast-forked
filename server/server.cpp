@@ -487,6 +487,15 @@ void Server::start()
                 LOG(INFO, LOG_TAG) << "Stream: " << stream->getUri().toJson() << "\n";
         }
 
+        // Log time synchronization information
+        try {
+            // Get comprehensive time status and log it
+            time_sync::TimeStatus status = time_sync::getTimeStatus();
+            time_sync::logTimeStatus(status, LOG_TAG);
+        } catch (const std::exception& e) {
+            LOG(WARNING, LOG_TAG) << "Failed to initialize time synchronization: " << e.what();
+        }
+        
         streamManager_->start();
         controlServer_->start();
         streamServer_->start();

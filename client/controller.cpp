@@ -553,6 +553,30 @@ void Controller::worker()
 
             // Do initial time sync with the server
             sendTimeSyncMessage(50);
+            
+            // Log time synchronization information
+            try {
+                auto& timeProvider = TimeProvider::getInstance();
+                time_sync::TimeSyncInfo syncInfo = timeProvider.getSyncInfo();
+                
+                // Calculate time difference to server in ms
+                double diff_ms = 0;
+                if (timeProvider.getProtocolVersion() > time_sync::ProtocolVersion::V1) {
+                    diff_ms = timeProvider.getDiffToServer() / 1000.0;
+                }
+                
+                // Create time status with client-specific information
+                time_sync::TimeStatus status = time_sync::getTimeStatus(diff_ms);
+                status.active_source = syncInfo.source;
+                status.active_source_info = syncInfo;
+                status.protocol_version = timeProvider.getProtocolVersion();
+                
+                // Log the time status
+                time_sync::logTimeStatus(status, LOG_TAG);
+            } catch (const std::exception& e) {
+                LOG(WARNING, LOG_TAG) << "Failed to log time synchronization info: " << e.what();
+            }
+            
             // Start receiver loop
             getNextMessage();
         }
