@@ -562,7 +562,7 @@ void Controller::worker()
                 // Calculate time difference to server in ms
                 double diff_ms = 0;
                 if (timeProvider.getProtocolVersion() > time_sync::ProtocolVersion::V1) {
-                    diff_ms = timeProvider.getDiffToServer() / 1000.0;
+                    diff_ms = timeProvider.getDiffToServer<std::chrono::microseconds>().count() / 1000.0;
                 }
                 
                 // Create time status with client-specific information

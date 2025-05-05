@@ -509,6 +509,23 @@ int main(int argc, char** argv)
         else if (mode == "none")
             settings.player.mixer.mode = ClientSettings::Mixer::Mode::none;
         else if ((mode == "?") || (mode == "help"))
+        {
+            cout << "mixer can be one of 'software', " << (hw_mixer_supported ? "'hardware', " : "")
+#ifdef SUPPORTS_VOLUME_SCRIPT
+                 << "'script', "
+#endif
+                 << "'none'\n"
+                 << "followed by optional parameters:\n"
+                 << " * software[:poly[:<exponent>]|exp[:<base>]]\n"
+                 << (hw_mixer_supported ? " * hardware[:<mixer name>]\n" : "")
+#ifdef SUPPORTS_VOLUME_SCRIPT
+                 << " * script[:<script filename>]"
+#endif
+                 << "\n";
+            exit(EXIT_SUCCESS);
+        }
+        else
+            throw SnapException("Mixer mode not supported: " + mode);
 
         // Process time synchronization settings
         if (time_mode_opt->is_set())
@@ -530,25 +547,6 @@ int main(int argc, char** argv)
         {
             LOG(INFO, LOG_TAG) << "Time source: " << settings.time_sync.preferred_source << "\n";
         }
-        
-        else if ((mode == "?") || (mode == "help"))
-        {
-            cout << "mixer can be one of 'software', " << (hw_mixer_supported ? "'hardware', " : "")
-#ifdef SUPPORTS_VOLUME_SCRIPT
-                 << "'script', "
-#endif
-                 << "'none'\n"
-                 << "followed by optional parameters:\n"
-                 << " * software[:poly[:<exponent>]|exp[:<base>]]\n"
-                 << (hw_mixer_supported ? " * hardware[:<mixer name>]\n" : "")
-#ifdef SUPPORTS_VOLUME_SCRIPT
-                 << " * script[:<script filename>]"
-#endif
-                 << "\n";
-            exit(EXIT_SUCCESS);
-        }
-        else
-            throw SnapException("Mixer mode not supported: " + mode);
 
         boost::asio::io_context io_context;
         // Construct a signal set registered for process termination.
