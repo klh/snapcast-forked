@@ -89,7 +89,7 @@ void TimeProvider::setDiffToServer(double ms)
     
     LOG(DEBUG, LOG_TAG) << "setDiffToServer: " << ms << ", diff: " << diffToServer_ / 1000000 << " s, " 
                        << (diffToServer_ / 1000) % 1000 << "." << diffToServer_ % 1000 
-                       << " ms, source: " << static_cast<int>(current_source_) << "\n";
+                       << " ms, source: " << static_cast<int>(current_source_.load()) << "\n";
 }
 
 time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
@@ -344,29 +344,28 @@ void TimeProvider::detectAvailableTimeSources()
     }
 }
 
-chronos::time_point_clk TimeProvider::getCurrentTime()
+chronos::time_point_clk TimeProvider::getCurrentTime(time_sync::TimeSyncSource specific)
 {
     // This method doesn't need locking as it only reads the current_source_ value
     // which is updated atomically by other methods
     
-    try {
-        // Use the new time_sync::getTime function with the currently selected time source
-        time_sync::TimeValue timeValue = time_sync::getTime(current_source_);
-        
-        // Convert the system_clock time point to our chronos time point
-        auto sys_time = timeValue.timestamp;
-        auto sys_duration = sys_time.time_since_epoch();
-        auto chrono_duration = std::chrono::duration_cast<chronos::usec>(sys_duration);
-        
-        LOG(DEBUG, LOG_TAG) << "Got time from " << time_sync::timeSourceToString(current_source_) << "\n";
-        
-        return chronos::time_point_clk(chrono_duration);
-    } catch (const std::exception& e) {
-        LOG(WARNING, LOG_TAG) << "Error getting time from source " 
-                           << time_sync::timeSourceToString(current_source_) 
-                           << ": " << e.what() << ", falling back to steady clock\n";
-        
-        // Fall back to steady clock on error for backward compatibility
-        return chronos::clk::now();
+    // If a specific source is requested, use the base class implementation
+    if (specific != time_sync::TimeSyncSource::NONE) {
+        return TimeManager::getCurrentTime(specific);
     }
+    
+    // Get the current time from the system clock
+    auto now = chronos::clk::now();
+    
+    // For client, we need to adjust by the diff to server
+    // This ensures all clients are synchronized with the server's clock
+    now += getDiffToServer<chronos::usec>();
+    
+    // Log the current time source and time
+    auto duration = now.time_since_epoch();
+    auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    LOG(TRACE, LOG_TAG) << "getCurrentTime: " << microseconds / 1000000 << "." << microseconds % 1000000
+                       << ", source: " << time_sync::timeSourceToString(current_source_.load()) << "\n";
+    
+    return now;
 }

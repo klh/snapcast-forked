@@ -51,19 +51,19 @@ public:
     void setDiff(const tv& c2s, const tv& s2c);
     
     /**
-     * Public wrapper to access the protocol version
+     * Get protocol version - public access to protected base class method
      * @return Current protocol version
      */
     time_sync::ProtocolVersion getProtocolVersion() const {
-        return TimeManager::getProtocolVersion();
+        return snapcast::TimeManager::getProtocolVersion();
     }
     
     /**
-     * Public wrapper to set the protocol version
+     * Set protocol version - public access to protected base class method
      * @param version Protocol version to set
      */
     void setProtocolVersion(time_sync::ProtocolVersion version) {
-        TimeManager::setProtocolVersion(version);
+        snapcast::TimeManager::setProtocolVersion(version);
     }
     
     /// Negotiate the best time synchronization source with the server
@@ -80,6 +80,12 @@ public:
     
     /// Get current time sync information
     time_sync::TimeSyncInfo getSyncInfo() const;
+    
+    /// Override: Get current time using the selected or specified time source
+    chronos::time_point_clk getCurrentTime(time_sync::TimeSyncSource specific = time_sync::TimeSyncSource::NONE) override;
+    
+    /// Override: Detect available time sources on the system
+    void detectAvailableTimeSources() override;
 
     template <typename T>
     inline T getDiffToServer() const
@@ -110,8 +116,8 @@ public:
 
 private:
     TimeProvider();
-    TimeProvider(TimeProvider const&);   // Don't Implement
-    void operator=(TimeProvider const&); // Don't implement
+    TimeProvider(TimeProvider const&) = delete;
+    void operator=(TimeProvider const&) = delete;
 
     // Client-specific members
     DoubleBuffer<chronos::usec::rep> diffBuffer_;
@@ -119,4 +125,7 @@ private:
     
     // Configuration
     ClientSettings::TimeSync settings_;
+    
+    // Preferred time source (if any)
+    time_sync::TimeSyncSource preferred_source_{time_sync::TimeSyncSource::NONE};
 };
