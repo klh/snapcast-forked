@@ -152,6 +152,50 @@ struct tv
         }
         return result;
     }
+    
+    /// greater than operator
+    bool operator>(const tv& other) const
+    {
+        if (sec > other.sec)
+            return true;
+        if (sec == other.sec && usec > other.usec)
+            return true;
+        return false;
+    }
+    
+    /// less than operator
+    bool operator<(const tv& other) const
+    {
+        if (sec < other.sec)
+            return true;
+        if (sec == other.sec && usec < other.usec)
+            return true;
+        return false;
+    }
+    
+    /// equality operator
+    bool operator==(const tv& other) const
+    {
+        return (sec == other.sec && usec == other.usec);
+    }
+    
+    /// inequality operator
+    bool operator!=(const tv& other) const
+    {
+        return !(*this == other);
+    }
+    
+    /// greater than or equal operator
+    bool operator>=(const tv& other) const
+    {
+        return (*this > other || *this == other);
+    }
+    
+    /// less than or equal operator
+    bool operator<=(const tv& other) const
+    {
+        return (*this < other || *this == other);
+    }
 };
 
 namespace msg

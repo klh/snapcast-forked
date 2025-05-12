@@ -361,7 +361,9 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
             // For logging purposes only - no actual time adjustment needed
             double diff_ms = 0;
             if (response->received > response->sent) {
-                diff_ms = std::chrono::duration_cast<std::chrono::microseconds>(response->received - response->sent).count() / 1000.0;
+                // Calculate difference in microseconds directly from tv struct
+                tv diff = response->received - response->sent;
+                diff_ms = (diff.sec * 1000000 + diff.usec) / 1000.0;
             }
             
             // Process the time response using the standardized helper
