@@ -114,13 +114,8 @@ void TimeProvider::verifyChrony()
         pclose(fp);
     }
     
-    // Method 3: Check if localhost is in the server host
-    if (settings_.server.host.find("localhost") != std::string::npos || 
-        settings_.server.host.find("127.0.0.1") != std::string::npos) {
-        local_server_ = true;
-        LOG(INFO, LOG_TAG) << "Server host is localhost, using local clock\n";
-        return; // Local server is fine, no need for chrony
-    }
+    // Note: We can't check server host here because TimeSync doesn't have access to it
+    // This check is done in Controller::initChronyClient instead
     
     LOG(INFO, LOG_TAG) << "No local snapserver detected, will use chrony for time synchronization\n";
     
