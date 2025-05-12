@@ -49,68 +49,76 @@ void ChronyClient::disconnect() {
     LOG(INFO, LOG_TAG) << "Client disconnected but chrony still running and connected to server\n";
 }
 
-void ChronyClient::init(const std::string& config_dir) {
+bool ChronyClient::init(const std::string& config_dir) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (connected_) {
-        throw std::runtime_error("Cannot initialize chrony client while already connected");
+        LOG(ERROR, LOG_TAG) << "Cannot initialize chrony client while already connected\n";
+        return false;
     }
     
-    // Verify chrony is installed - this is a hard requirement
-    verifyChronoInstalled();
-    
-    // Check if snapserver is running on the same system
-    bool is_local_server = false;
-    
-    // Use ps to check if snapserver is running
-    std::string ps_output = execCommand("ps -ef | grep -v grep | grep snapserver 2>/dev/null");
-    if (!ps_output.empty()) {
-        // Found snapserver process running locally
-        is_local_server = true;
-        LOG(INFO, LOG_TAG) << "Detected snapserver running on the same system\n";
+    try {
+        // Verify chrony is installed - this is a hard requirement
+        verifyChronoInstalled();
+        
+        // Check if snapserver is running on the same system
+        bool is_local_server = false;
+        
+        // Use ps to check if snapserver is running
+        std::string ps_output = execCommand("ps -ef | grep -v grep | grep snapserver 2>/dev/null");
+        if (!ps_output.empty()) {
+            // Found snapserver process running locally
+            is_local_server = true;
+            LOG(INFO, LOG_TAG) << "Detected snapserver running on the same system\n";
+        }
+        
+        if (is_local_server) {
+            LOG(NOTICE, LOG_TAG) << "Server running on same machine - using local monotonic clock instead of chrony\n";
+            // Don't set up chrony client when running on the same machine as the server
+        } else {
+            LOG(NOTICE, LOG_TAG) << "Chrony present locally - will configure as client\n";
+        }
+        
+        // Store configuration directory for any future use
+        config_dir_ = config_dir;
+        
+        LOG(INFO, LOG_TAG) << "Initialized chrony client\n";
+        return true;
+    } catch (const std::exception& e) {
+        LOG(ERROR, LOG_TAG) << "Failed to initialize chrony client: " << e.what() << "\n";
+        return false;
     }
-    
-    if (is_local_server) {
-        LOG(NOTICE, LOG_TAG) << "Server running on same machine - using local monotonic clock instead of chrony\n";
-        // Don't set up chrony client when running on the same machine as the server
-    } else {
-        LOG(NOTICE, LOG_TAG) << "Chrony present locally - will configure as client\n";
-    }
-    
-    // Store configuration directory for any future use
-    config_dir_ = config_dir;
-    
-    LOG(INFO, LOG_TAG) << "Initialized chrony client\n";
 }
 
-void ChronyClient::connectToServer(const std::string& server_address, uint16_t port)
+bool ChronyClient::connectToServer(const std::string& server_address, uint16_t port)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (connected_) {
         LOG(INFO, LOG_TAG) << "Already connected to a server\n";
-        return;
+        return true;
     }
     
-    // Check if snapserver is running on the same system
-    bool is_local_server = false;
-    
-    // Use ps to check if snapserver is running
-    std::string ps_output = execCommand("ps -ef | grep -v grep | grep snapserver 2>/dev/null");
-    if (!ps_output.empty()) {
-        // Found snapserver process running locally
-        is_local_server = true;
-        LOG(INFO, LOG_TAG) << "Detected snapserver running on the same system\n";
-    }
-    
-    if (is_local_server) {
-        LOG(NOTICE, LOG_TAG) << "Server running on same machine - using local monotonic clock instead of chrony\n";
-        // Mark as connected but don't actually configure chrony
-        server_address_ = server_address;
-        port_ = port;
-        connected_ = true;
-        return;
-    }
+    try {
+        // Check if snapserver is running on the same system
+        bool is_local_server = false;
+        
+        // Use ps to check if snapserver is running
+        std::string ps_output = execCommand("ps -ef | grep -v grep | grep snapserver 2>/dev/null");
+        if (!ps_output.empty()) {
+            // Found snapserver process running locally
+            is_local_server = true;
+            LOG(INFO, LOG_TAG) << "Detected snapserver running on the same system\n";
+        }
+        
+        if (is_local_server) {
+            LOG(NOTICE, LOG_TAG) << "Server running on same machine - using local monotonic clock instead of chrony\n";
+            // Mark as connected but don't actually configure chrony
+            server_address_ = server_address;
+            port_ = port;
+            connected_ = true;
+            return true;
+        }
     
     // Store server information
     server_address_ = server_address;
@@ -126,7 +134,8 @@ void ChronyClient::connectToServer(const std::string& server_address, uint16_t p
         // Start chronyd as a background process
         std::string result = execCommand(cmd + " & echo $!");
         if (result.empty()) {
-            throw std::runtime_error("Failed to start chronyd. Time synchronization cannot function.");
+            LOG(ERROR, LOG_TAG) << "Failed to start chronyd. Time synchronization cannot function.\n";
+            return false;
         }
         
         // Wait for chronyd to start
@@ -135,7 +144,8 @@ void ChronyClient::connectToServer(const std::string& server_address, uint16_t p
         // Verify chronyd started successfully
         status = execCommand("chronyc -c tracking 2>/dev/null");
         if (status.empty()) {
-            throw std::runtime_error("Chronyd started but is not responding. Time synchronization cannot function.");
+            LOG(ERROR, LOG_TAG) << "Chronyd started but is not responding. Time synchronization cannot function.\n";
+            return false;
         }
     }
     
@@ -241,6 +251,11 @@ void ChronyClient::connectToServer(const std::string& server_address, uint16_t p
     connected_ = true;
     
     LOG(NOTICE, LOG_TAG) << "Successfully connected to chrony server at " << server_address << "\n";
+    return true;
+    } catch (const std::exception& e) {
+        LOG(ERROR, LOG_TAG) << "Failed to connect to chrony server: " << e.what() << "\n";
+        return false;
+    }
 }
 
 
