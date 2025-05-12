@@ -316,6 +316,7 @@ struct TimeStatus
     TimeValue current_time;             // Current time value
     std::map<TimeSyncSource, TimeSyncInfo> available_sources; // All available sources
     ProtocolVersion protocol_version;   // Protocol version in use
+    // Legacy field kept for API compatibility - not used with chrony-based synchronization
     double diff_ms{0};                  // Time difference in ms (for client)
 };
 

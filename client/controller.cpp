@@ -85,7 +85,7 @@ Controller::Controller(boost::asio::io_context& io_context, const ClientSettings
       timer_(io_context), settings_(settings), stream_(nullptr), decoder_(nullptr), player_(nullptr), serverSettings_(nullptr)
 {
     // Initialize time provider
-    // Note: Protocol version defaults to V2 in the TimeManager constructor
+    // Protocol version defaults to V2
     TimeProvider::getInstance().configure(settings.time_sync);
     
     LOG(INFO, LOG_TAG) << "Initialized TimeProvider with preferred source: " 
@@ -354,14 +354,14 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
         
         auto& timeProvider = TimeProvider::getInstance();
         
-        // Set time difference from response
-        timeProvider.setDiff(response->latency, response->received - response->sent);
+        // With chrony-based synchronization, we don't need to calculate time differences
+        // The system clocks are already synchronized by chrony
         
         try {
-            // Calculate time difference to server in ms
+            // For logging purposes only - no actual time adjustment needed
             double diff_ms = 0;
-            if (timeProvider.getProtocolVersion() > time_sync::ProtocolVersion::V1) {
-                diff_ms = timeProvider.getDiffToServer<std::chrono::microseconds>().count() / 1000.0;
+            if (response->received > response->sent) {
+                diff_ms = std::chrono::duration_cast<std::chrono::microseconds>(response->received - response->sent).count() / 1000.0;
             }
             
             // Process the time response using the standardized helper
@@ -374,28 +374,23 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                                   << static_cast<int>(status.protocol_version) << "\n";
             }
             
-            // For V2+ protocol, negotiate time source with server
+            // For V2+ protocol, handle time source from server
             if (status.protocol_version > time_sync::ProtocolVersion::V1) {
                 LOG(DEBUG, LOG_TAG) << "Server time source: " 
                                    << time_sync::timeSourceToString(status.active_source) 
                                    << ", quality: " << status.active_source_info.quality << "\n";
                 
-                // Negotiate the best time source with the server
-                timeProvider.negotiateSyncSource(status.active_source_info);
-                
                 // If server is using chrony, initialize chrony client
+                // With our simplified approach, we always try to use chrony when available
                 if (status.active_source == time_sync::TimeSyncSource::CHRONY) {
                     // Extract server address from connection settings
                     std::string server_address = settings_.server.host;
                     initChronyClient(server_address);
                 }
             } else {
-                // For V1 protocol, use fallback mode with monotonic clock
-                time_sync::TimeSyncInfo fallbackInfo = time_sync::getDefaultQualityMetrics(time_sync::TimeSyncSource::MONOTONIC);
-                fallbackInfo.available = true;
-                
-                // Set fallback mode for backward compatibility
-                timeProvider.setFallbackMode(fallbackInfo);
+                // For V1 protocol, just log that we're using a legacy protocol
+                // With chrony-based synchronization, we don't need special handling
+                LOG(INFO, LOG_TAG) << "Using legacy time sync protocol V1 - relying on chrony or system clock\n";
             }
         } catch (const std::exception& e) {
             LOG(ERROR, LOG_TAG) << "Error processing time response: " << e.what() << "\n";
@@ -412,9 +407,8 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
         if (quick_syncs > 0)
         {
             if (--quick_syncs == 0) {
-                LOG(INFO, LOG_TAG) << "diff to server [ms]: "
-                                   << static_cast<float>(timeProvider.getDiffToServer<chronos::usec>().count()) / 1000.f
-                                   << ", using time source: " << time_sync::timeSourceToString(timeProvider.getSyncInfo().source) << "\n";
+                LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: " 
+                                   << time_sync::timeSourceToString(timeProvider.getSyncInfo().source) << "\n";
             }
             next = 100us;
         }
@@ -565,11 +559,9 @@ void Controller::worker()
                 auto& timeProvider = TimeProvider::getInstance();
                 time_sync::TimeSyncInfo syncInfo = timeProvider.getSyncInfo();
                 
-                // Calculate time difference to server in ms
+                // With chrony-based synchronization, we don't need to calculate time differences
+                // The system clocks are already synchronized by chrony
                 double diff_ms = 0;
-                if (timeProvider.getProtocolVersion() > time_sync::ProtocolVersion::V1) {
-                    diff_ms = timeProvider.getDiffToServer<std::chrono::microseconds>().count() / 1000.0;
-                }
                 
                 // Initialize and log time synchronization using the standardized function
                 // Pass client-specific parameters: diff_ms, protocol version, and preferred source
@@ -593,13 +585,13 @@ void Controller::worker()
     });
 }
 
-bool Controller::initChronyClient(const std::string& server_address)
+void Controller::initChronyClient(const std::string& server_address)
 {
     static bool initialized = false;
     
     // Only initialize once
     if (initialized) {
-        return true;
+        return;
     }
     
     LOG(INFO, LOG_TAG) << "Initializing chrony client for time synchronization with server: " << server_address;
@@ -609,22 +601,25 @@ bool Controller::initChronyClient(const std::string& server_address)
     
     // Initialize chrony client
     auto& chrony_client = snapclient::ChronyClient::getInstance();
-    if (!chrony_client.init(config_dir)) {
-        LOG(ERROR, LOG_TAG) << "Failed to initialize chrony client";
-        return false;
+    try {
+        // Initialize chrony client - will throw if chrony is not available
+        chrony_client.init(config_dir);
+        
+        // Connect to the server's chrony master - will throw if connection fails
+        chrony_client.connectToServer(server_address);
+        
+        LOG(NOTICE, LOG_TAG) << "Connected to chrony server at " << server_address;
+        
+        // Verify synchronization is working
+        if (!chrony_client.isSynchronized()) {
+            throw std::runtime_error("Chrony is not properly synchronized with the server");
+        }
+        
+        initialized = true;
+    } catch (const std::exception& e) {
+        LOG(ERROR, LOG_TAG) << "Chrony initialization failed: " << e.what();
+        throw; // Re-throw to halt client if chrony setup fails
     }
-    
-    // Connect to the server's chrony master
-    // Default chrony port is 323
-    if (!chrony_client.connectToServer(server_address)) {
-        LOG(ERROR, LOG_TAG) << "Failed to connect to chrony server at " << server_address;
-        return false;
-    }
-    
-    LOG(NOTICE, LOG_TAG) << "Connected to chrony server at " << server_address;
-    
-    initialized = true;
-    return true;
 }
 
 void Controller::disconnectChronyClient()

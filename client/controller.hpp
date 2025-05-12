@@ -64,7 +64,12 @@ private:
     void sendTimeSyncMessage(int quick_syncs = 0);
     
     // Initialize and connect to the server's chrony master if chrony is selected as time source
-    bool initChronyClient(const std::string& server_address);
+    /**
+     * Initialize chrony client for time synchronization
+     * @param server_address Address of the server running chrony master
+     * @throws std::runtime_error if chrony is not available or synchronization fails
+     */
+    void initChronyClient(const std::string& server_address);
     
     // Disconnect from the server's chrony master
     void disconnectChronyClient();

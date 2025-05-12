@@ -56,18 +56,32 @@ ChronyClient::~ChronyClient() {
     disconnect();
 }
 
-bool ChronyClient::init(const std::string& config_dir) {
+void ChronyClient::disconnect() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    if (!connected_) {
+        return;
+    }
+    
+    LOG(INFO, LOG_TAG) << "Client disconnecting but keeping chrony server connection active\n";
+    
+    // Never remove the server from chrony sources
+    // Just reset our internal connection state
+    connected_ = false;
+    
+    LOG(INFO, LOG_TAG) << "Client disconnected but chrony still running and connected to server\n";
+}
+
+void ChronyClient::init(const std::string& config_dir) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (connected_) {
-        LOG(WARNING, LOG_TAG) << "Cannot initialize while connected\n";
-        return false;
+        throw std::runtime_error("Cannot initialize chrony client while already connected");
     }
     
-    // Check if chrony is installed
+    // Check if chrony is installed - this is now a hard requirement
     if (!isChronyInstalled()) {
-        LOG(ERROR, LOG_TAG) << "Chrony is not installed. Please install chrony package\n";
-        return false;
+        throw std::runtime_error("Chrony is not installed. It is required for time synchronization.");
     }
     
     // Check if snapserver is running on the same system
@@ -82,27 +96,25 @@ bool ChronyClient::init(const std::string& config_dir) {
     }
     
     if (is_local_server) {
-        LOG(NOTICE, LOG_TAG) << "Chrony present locally and running on same machine as server - using local monotonic clock\n";
+        LOG(NOTICE, LOG_TAG) << "Server running on same machine - using local monotonic clock instead of chrony\n";
         // Don't set up chrony client when running on the same machine as the server
-        return true;
     } else {
-        LOG(NOTICE, LOG_TAG) << "Chrony present locally, Chrony present on master - setting up " << server_address << " as master and this as slave\n";
+        LOG(NOTICE, LOG_TAG) << "Chrony present locally - will configure as client\n";
     }
     
     // Store configuration directory for any future use
     config_dir_ = config_dir;
     
     LOG(INFO, LOG_TAG) << "Initialized chrony client\n";
-    return true;
 }
 
-bool ChronyClient::connectToServer(const std::string& server_address, uint16_t port)
+void ChronyClient::connectToServer(const std::string& server_address, uint16_t port)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (connected_) {
-        LOG(WARNING, LOG_TAG) << "Already connected to a server\n";
-        return true;
+        LOG(INFO, LOG_TAG) << "Already connected to a server\n";
+        return;
     }
     
     // Check if snapserver is running on the same system
@@ -122,8 +134,7 @@ bool ChronyClient::connectToServer(const std::string& server_address, uint16_t p
         server_address_ = server_address;
         port_ = port;
         connected_ = true;
-        stop_requested_ = false;
-        return true;
+        return;
     }
     
     // Store server information
@@ -140,12 +151,17 @@ bool ChronyClient::connectToServer(const std::string& server_address, uint16_t p
         // Start chronyd as a background process
         std::string result = execCommand(cmd + " & echo $!");
         if (result.empty()) {
-            LOG(ERROR, LOG_TAG) << "Failed to start chronyd\n";
-            return false;
+            throw std::runtime_error("Failed to start chronyd. Time synchronization cannot function.");
         }
         
         // Wait for chronyd to start
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        
+        // Verify chronyd started successfully
+        status = execCommand("chronyc -c tracking 2>/dev/null");
+        if (status.empty()) {
+            throw std::runtime_error("Chronyd started but is not responding. Time synchronization cannot function.");
+        }
     }
     
     // Configure client to use server
@@ -249,7 +265,7 @@ bool ChronyClient::connectToServer(const std::string& server_address, uint16_t p
     // Mark as connected
     connected_ = true;
     
-    return true;
+    LOG(NOTICE, LOG_TAG) << "Successfully connected to chrony server at " << server_address << "\n";
 }
 
 
@@ -349,9 +365,50 @@ bool ChronyClient::configureClient(const std::string& server_address, uint16_t p
     return true;
 }
 
-bool ChronyClient::isChronyInstalled() const {
+bool ChronyClient::isChronyInstalled() {
     std::string result = execCommand("which chronyd 2>/dev/null");
     return !result.empty();
+}
+
+bool ChronyClient::isSynchronized() {
+    // Get tracking information from chronyc
+    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
+    if (tracking.empty()) {
+        LOG(WARNING, LOG_TAG) << "Failed to get chrony tracking information\n";
+        return false;
+    }
+    
+    // Parse the tracking information
+    // The 5th field in CSV output contains the stratum (lower is better)
+    // Stratum 0 = reference clock, 1 = primary server, 2+ = secondary servers
+    std::istringstream iss(tracking);
+    std::string field;
+    int field_count = 0;
+    int stratum = 16; // Default to highest (worst) stratum
+    
+    // Parse CSV format
+    while (std::getline(iss, field, ',')) {
+        field_count++;
+        if (field_count == 5) {
+            try {
+                stratum = std::stoi(field);
+            } catch (...) {
+                // Failed to parse stratum
+            }
+            break;
+        }
+    }
+    
+    // Consider synchronized if stratum is 0-10 (0-2 is good, 3-10 is acceptable)
+    bool synchronized = (stratum >= 0 && stratum <= 10);
+    
+    if (synchronized) {
+        LOG(DEBUG, LOG_TAG) << "Chrony is synchronized with stratum " << stratum << "\n";
+    } else {
+        LOG(WARNING, LOG_TAG) << "Chrony is not properly synchronized (stratum " << stratum << ")\n";
+    }
+    
+    return synchronized;
 }
 
 bool ChronyClient::startClient() {
@@ -411,21 +468,13 @@ bool ChronyClient::startClient() {
 }
 
 void ChronyClient::stopClient() {
-    if (chrony_pid_ > 0) {
-        LOG(INFO, LOG_TAG) << "Stopping chrony client (PID: " << chrony_pid_ << ")\n";
-        kill(chrony_pid_, SIGTERM);
-        
-        // Wait briefly for clean shutdown
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        
-        // Check if still running
-        if (kill(chrony_pid_, 0) == 0) {
-            LOG(WARNING, LOG_TAG) << "Chrony client did not stop gracefully, forcing termination\n";
-            kill(chrony_pid_, SIGKILL);
-        }
-        
-        chrony_pid_ = -1;
-    }
+    // Never stop chrony or remove servers
+    LOG(INFO, LOG_TAG) << "Client stopping but keeping chrony running and connected to server\n";
+    
+    // Just reset our internal state
+    chrony_pid_ = -1;
+    
+    LOG(INFO, LOG_TAG) << "Client stopped but chrony still running and connected to server\n";
 }
 
 // No monitor thread implementation - assuming chrony works if configured properly

@@ -558,35 +558,32 @@ void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
 }
 
 TimeStatus initAndLogTimeSync(const std::string& log_tag, 
-                              double diff_ms, 
-                              ProtocolVersion protocol_version,
-                              TimeSyncSource preferred_source)
+                               double diff_ms, 
+                               ProtocolVersion protocol_version,
+                               TimeSyncSource preferred_source)
 {
-    // Get all available time sources once to avoid race conditions
+    // Get all available time sources
     auto time_sources = getAllTimeSourcesInfo();
     
-    // Select the best time source
+    // With chrony-based synchronization, prioritize chrony when available
     TimeSyncSource selected_source;
-    if (preferred_source != TimeSyncSource::NONE) {
-        // Use preferred source if specified and available
-        auto it = time_sources.find(preferred_source);
-        if (it != time_sources.end() && it->second.available) {
-            selected_source = preferred_source;
-            LOG(DEBUG, log_tag) << "Using preferred time source: " 
-                               << timeSourceToString(preferred_source);
-        } else {
-            // Fall back to best available
-            selected_source = selectBestTimeSource(time_sources, preferred_source);
-            LOG(DEBUG, log_tag) << "Preferred source " 
-                               << timeSourceToString(preferred_source)
-                               << " not available, using " 
-                               << timeSourceToString(selected_source);
-        }
-    } else {
-        // No preference, select best available
-        selected_source = selectBestTimeSource(time_sources);
-        LOG(DEBUG, log_tag) << "Selected best available time source: " 
-                           << timeSourceToString(selected_source);
+    
+    // Check if chrony is available
+    auto chrony_it = time_sources.find(TimeSyncSource::CHRONY);
+    if (chrony_it != time_sources.end() && chrony_it->second.available) {
+        selected_source = TimeSyncSource::CHRONY;
+        LOG(INFO, log_tag) << "Using chrony for time synchronization";
+    } 
+    // If server and client are on same machine, use monotonic clock
+    else if (time_sources.find(TimeSyncSource::MONOTONIC) != time_sources.end() && 
+             time_sources[TimeSyncSource::MONOTONIC].available) {
+        selected_source = TimeSyncSource::MONOTONIC;
+        LOG(INFO, log_tag) << "Server and client on same machine, using local clock";
+    }
+    // Otherwise use system clock
+    else {
+        selected_source = TimeSyncSource::SYSTEM;
+        LOG(INFO, log_tag) << "Using system clock for time synchronization";
     }
     
     // Get the source info
@@ -721,8 +718,9 @@ TimeStatus processTimeResponse(const msg::Time* response, double diff_ms)
     // Get available sources
     status.available_sources = getAllTimeSourcesInfo();
     
-    // Set time difference
-    status.diff_ms = diff_ms;
+    // With chrony-based synchronization, we don't need time differences
+    // But we keep this parameter for API compatibility
+    status.diff_ms = 0.0;
     
     return status;
 }

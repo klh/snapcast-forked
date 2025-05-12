@@ -32,6 +32,10 @@ namespace snapclient {
  * 
  * This class configures the local chrony client to synchronize with the Snapcast server's
  * chrony master, ensuring precise time synchronization for audio playback.
+ * 
+ * Chrony is a hard dependency for Snapcast - the system will not function without it.
+ * Once established, chrony connections are maintained throughout the client's lifetime,
+ * even when the client disconnects from the server, to ensure consistent synchronization.
  */
 class ChronyClient {
 public:
@@ -44,25 +48,42 @@ public:
     /**
      * Initialize the chrony client
      * @param config_dir Directory to store configuration files
-     * @return True if initialization was successful
+     * @throws std::runtime_error if chrony is not installed or initialization fails
      */
-    bool init(const std::string& config_dir);
+    void init(const std::string& config_dir);
     
     /**
      * Connect to the Snapcast server's chrony master
      * @param server_address Server hostname or IP address
      * @param port Server port (default: 323)
-     * @return True if connection was successful
+     * @throws std::runtime_error if connection fails
      */
-    bool connectToServer(const std::string& server_address, uint16_t port = 323);
+    void connectToServer(const std::string& server_address, uint16_t port = 323);
     
-    // No disconnect method - chrony configuration persists until system restart
+    /**
+     * Disconnect client from the server
+     * Note: This only updates internal state - chrony remains running and connected to the server
+     * to maintain time synchronization throughout the client's lifetime
+     */
+    void disconnect();
     
     /**
      * Check if connected to the Snapcast server's chrony master
      * @return True if connected
      */
     bool isConnected() const;
+    
+    /**
+     * Check if chrony is installed
+     * @return True if chrony is installed
+     */
+    bool isChronyInstalled();
+    
+    /**
+     * Check if chrony is properly synchronized
+     * @return True if chrony is synchronized with a time source
+     */
+    bool isSynchronized();
     
     /**
      * Get the current synchronization status

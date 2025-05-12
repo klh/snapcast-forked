@@ -56,21 +56,17 @@ ChronyMaster::~ChronyMaster() {
     stop();
 }
 
-bool ChronyMaster::init(const std::string& config_dir, uint16_t port) {
+void ChronyMaster::init(const std::string& config_dir, uint16_t port) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (running_) {
-        LOG(WARNING, LOG_TAG) << "Cannot initialize while running\n";
-        return false;
+        throw std::runtime_error("Cannot initialize chrony master while it is already running");
     }
     
-    // Check if chrony is installed
+    // Check if chrony is installed - this is now a hard requirement
     if (!isChronyInstalled()) {
-        LOG(ERROR, LOG_TAG) << "Chrony is not installed. Please install chrony package\n";
-        return false;
+        throw std::runtime_error("Chrony is not installed. It is required for time synchronization.");
     }
-    
-    LOG(NOTICE, LOG_TAG) << "Chrony present, setting up " << server_address_ << " as chrony MASTER\n";
     
     // Store configuration parameters
     port_ = port;
@@ -86,19 +82,17 @@ bool ChronyMaster::init(const std::string& config_dir, uint16_t port) {
     // Trim newlines
     server_address_.erase(server_address_.find_last_not_of("\n\r") + 1);
     
+    LOG(NOTICE, LOG_TAG) << "Chrony present, setting up " << server_address_ << " as chrony MASTER\n";
     LOG(INFO, LOG_TAG) << "Initialized chrony master with server address: " << server_address_ << ":" << port_ << "\n";
-    
-    // No need to generate configuration file - using direct chronyc commands
-    return true;
 }
 
-bool ChronyMaster::start()
+void ChronyMaster::start()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (running_) {
-        LOG(WARNING, LOG_TAG) << "Chrony master already running\n";
-        return true;
+        LOG(INFO, LOG_TAG) << "Chrony master already running\n";
+        return;
     }
     
     // Check if chronyd is already running
@@ -113,12 +107,17 @@ bool ChronyMaster::start()
         // Start chronyd as a background process
         std::string result = execCommand(cmd + " & echo $!");
         if (result.empty()) {
-            LOG(ERROR, LOG_TAG) << "Failed to start chronyd\n";
-            return false;
+            throw std::runtime_error("Failed to start chronyd. Time synchronization cannot function.");
         }
         
         // Wait for chronyd to start
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        
+        // Verify chronyd started successfully
+        status = execCommand("chronyc -c tracking 2>/dev/null");
+        if (status.empty()) {
+            throw std::runtime_error("Chronyd started but is not responding. Time synchronization cannot function.");
+        }
     }
     
     // Configure as master using chronyc commands

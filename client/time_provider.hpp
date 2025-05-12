@@ -23,22 +23,19 @@
 #include "common/message/message.hpp"
 #include "common/time_defs.hpp"
 #include "common/time_sync.hpp"
-#include "common/time_manager.hpp"
-#include "double_buffer.hpp"
 
 // standard headers
 #include <atomic>
 #include <chrono>
-#include <map>
-#include <mutex>
 
-/// Provides local and server time
+/// Provides time synchronization using chrony
 /**
- * Stores time difference to the server
- * Returns server's local system time.
- * Clients are using the server time to play audio in sync, independent of the client's system time
+ * Uses chrony for precise time synchronization between server and clients.
+ * Chrony is a hard dependency - the system will not function without it.
+ * When chrony is properly configured, system time is already synchronized,
+ * so we can use it directly without additional adjustments.
  */
-class TimeProvider : public snapcast::TimeManager
+class TimeProvider
 {
 public:
     static TimeProvider& getInstance()
@@ -46,86 +43,79 @@ public:
         static TimeProvider instance;
         return instance;
     }
-
-    void setDiffToServer(double ms);
-    void setDiff(const tv& c2s, const tv& s2c);
     
     /**
-     * Get protocol version - public access to protected base class method
+     * Get protocol version
      * @return Current protocol version
      */
     time_sync::ProtocolVersion getProtocolVersion() const {
-        return snapcast::TimeManager::getProtocolVersion();
+        return protocol_version_;
     }
     
     /**
-     * Set protocol version - public access to protected base class method
+     * Set protocol version
      * @param version Protocol version to set
      */
     void setProtocolVersion(time_sync::ProtocolVersion version) {
-        snapcast::TimeManager::setProtocolVersion(version);
+        protocol_version_ = version;
     }
     
-    /// Negotiate the best time synchronization source with the server
-    void negotiateSyncSource(const time_sync::TimeSyncInfo& server_info);
-    
-    /// Set fallback mode for backward compatibility with older servers
-    void setFallbackMode(const time_sync::TimeSyncInfo& fallback_info);
-
-    /// Set the preferred time synchronization source
-    void setPreferredSyncSource(time_sync::TimeSyncSource source);
-
     /// Configure the time provider with client settings
     void configure(const ClientSettings::TimeSync& settings);
     
     /// Get current time sync information
     time_sync::TimeSyncInfo getSyncInfo() const;
     
-    /// Get current time using the selected or specified time source
-    chronos::time_point_clk getCurrentTime(time_sync::TimeSyncSource specific = time_sync::TimeSyncSource::NONE);
+    /// Get current time - uses system time directly when chrony is available
+    chronos::time_point_clk getCurrentTime();
     
-    /// Detect available time sources on the system
-    void detectAvailableTimeSources();
+    /// Verify chrony is available and properly configured
+    /// @throws std::runtime_error if chrony is not available or not synchronized
+    void verifyChrony();
+    
+    /// Check if chrony is properly synchronized
+    /// @throws std::runtime_error if chrony is not synchronized
+    void checkSynchronization();
 
-    template <typename T>
-    inline T getDiffToServer() const
-    {
-        return std::chrono::duration_cast<T>(chronos::usec(diffToServer_));
-    }
-
+    /// Convert a time point to a duration since epoch
     template <typename T>
     static T sinceEpoche(const chronos::time_point_clk& point)
     {
         return std::chrono::duration_cast<T>(point.time_since_epoch());
     }
 
+    /// Convert a timeval struct to a time point
     static chronos::time_point_clk toTimePoint(const tv& timeval)
     {
         return chronos::time_point_clk(chronos::usec(timeval.usec) + chronos::sec(timeval.sec));
     }
 
+    /// Get the current time
     inline static chronos::time_point_clk now()
     {
         return chronos::clk::now();
     }
 
+    /// Get the current server time (same as now() when chrony is properly configured)
     inline static chronos::time_point_clk serverNow()
     {
-        return chronos::clk::now() + TimeProvider::getInstance().getDiffToServer<chronos::usec>();
+        return chronos::clk::now();
     }
 
 private:
     TimeProvider();
     TimeProvider(TimeProvider const&) = delete;
     void operator=(TimeProvider const&) = delete;
-
-    // Client-specific members
-    DoubleBuffer<chronos::usec::rep> diffBuffer_;
-    std::atomic<chronos::usec::rep> diffToServer_{0};
     
     // Configuration
     ClientSettings::TimeSync settings_;
     
-    // Preferred time source (if any)
-    time_sync::TimeSyncSource preferred_source_{time_sync::TimeSyncSource::NONE};
+    // Protocol version
+    time_sync::ProtocolVersion protocol_version_{time_sync::ProtocolVersion::V2};
+    
+    // Is chrony available and properly configured
+    std::atomic<bool> chrony_available_{false};
+    
+    // Is server on same machine (no need for chrony in this case)
+    std::atomic<bool> local_server_{false};
 };

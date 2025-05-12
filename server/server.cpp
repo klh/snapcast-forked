@@ -284,20 +284,15 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
                 LOG(DEBUG, LOG_TAG) << "Client time source: " << time_sync::timeSourceToString(client_source) 
                                    << ", quality: " << client_quality << "\n";
                 
-                try {
-                    // Use the standardized helper to populate the time message
-                    // This will automatically select the best time source
-                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::NONE, protocol_version);
-                    
-                    // Log the selected time source
-                    LOG(DEBUG, LOG_TAG) << "Server using time source: " 
-                                       << time_sync::timeSourceToString(static_cast<time_sync::TimeSyncSource>(timeMsg->source)) 
-                                       << ", quality: " << timeMsg->quality << "\n";
-                } catch (const std::exception& e) {
-                    LOG(WARNING, LOG_TAG) << "Error getting time: " << e.what() << ", using system time\n";
-                    
-                    // Fall back to system time using the standardized helper
+                // With our simplified approach, we prioritize chrony when available
+                if (snapserver::ChronyMaster::getInstance().isRunning()) {
+                    // Use chrony as the time source
+                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::CHRONY, protocol_version);
+                    LOG(DEBUG, LOG_TAG) << "Server using chrony for time synchronization\n";
+                } else {
+                    // Fall back to system time
                     time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::SYSTEM, protocol_version);
+                    LOG(DEBUG, LOG_TAG) << "Server using system time (chrony not available)\n";
                 }
             }
             else
