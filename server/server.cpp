@@ -290,9 +290,9 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
                     time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::CHRONY, protocol_version);
                     LOG(DEBUG, LOG_TAG) << "Server using chrony for time synchronization\n";
                 } else {
-                    // Fall back to system time
-                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::SYSTEM, protocol_version);
-                    LOG(DEBUG, LOG_TAG) << "Server using system time (chrony not available)\n";
+                    // Fall back to monotonic clock
+                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::MONOTONIC, protocol_version);
+                    LOG(DEBUG, LOG_TAG) << "Server using monotonic clock (chrony not available)\n";
                 }
             }
             else

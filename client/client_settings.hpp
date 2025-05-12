@@ -113,11 +113,11 @@ struct ClientSettings
     /// Time synchronization settings
     struct TimeSync
     {
-        /// Preferred time synchronization source (0=CHRONY, 1=PTP, 2=NTP, 3=MONOTONIC, 4=SYSTEM, 255=AUTO)
-        int preferred_source{255};
+        /// Preferred time synchronization source (0=CHRONY, 3=MONOTONIC, 255=NONE)
+        int preferred_source{0}; // Default to CHRONY
         
         /// The time synchronization mode
-        time_sync::SyncMode mode{time_sync::SyncMode::auto_select};
+        time_sync::SyncMode mode{time_sync::SyncMode::fixed};
         
         /// Time synchronization interval in milliseconds
         int sync_interval{1000};
