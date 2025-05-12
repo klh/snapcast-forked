@@ -101,7 +101,6 @@ private:
 
     std::string script_;
     std::string params_;
-    bp::opstream in_;
 };
 
 } // namespace streamreader

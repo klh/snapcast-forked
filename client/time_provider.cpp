@@ -50,7 +50,7 @@ time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
         info.quality = 0.8f; // Good quality for local server
         info.estimated_error_ms = 1.0f; // Low error for local server
     } else {
-        info.source = time_sync::TimeSyncSource::SYSTEM;
+        info.source = time_sync::TimeSyncSource::NONE;
         info.available = true;
         info.quality = 0.5f; // Medium quality for system time
         info.estimated_error_ms = 10.0f; // Higher error for system time
