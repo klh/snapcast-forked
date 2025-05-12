@@ -382,9 +382,14 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                                    << time_sync::timeSourceToString(status.active_source) 
                                    << ", quality: " << status.active_source_info.quality << "\n";
                 
-                // If server is using chrony, initialize chrony client
-                // With our simplified approach, we always try to use chrony when available
-                if (status.active_source == time_sync::TimeSyncSource::CHRONY) {
+                // Only initialize chrony if we're not running on the same machine as the server
+                auto& timeProvider = TimeProvider::getInstance();
+                auto syncInfo = timeProvider.getSyncInfo();
+                
+                if (syncInfo.source == time_sync::TimeSyncSource::MONOTONIC) {
+                    // Already using monotonic clock, don't initialize chrony
+                    LOG(INFO, LOG_TAG) << "Using local monotonic clock for time synchronization";
+                } else if (status.active_source == time_sync::TimeSyncSource::CHRONY) {
                     // Extract server address from connection settings
                     std::string server_address = settings_.server.host;
                     initChronyClient(server_address);
@@ -409,8 +414,9 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
         if (quick_syncs > 0)
         {
             if (--quick_syncs == 0) {
+                auto syncInfo = timeProvider.getSyncInfo();
                 LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: " 
-                                   << time_sync::timeSourceToString(timeProvider.getSyncInfo().source) << "\n";
+                                   << time_sync::timeSourceToString(syncInfo.source) << "\n";
             }
             next = 100us;
         }
@@ -615,16 +621,8 @@ void Controller::initChronyClient(const std::string& server_address)
         initialized = true;
         return;
     }
-    
-    // Check if server is localhost - another way to detect local server
-    if (server_address.find("localhost") != std::string::npos || 
-        server_address.find("127.0.0.1") != std::string::npos) {
-        LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as server is on localhost";
-        LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: Monotonic";
-        initialized = true;
-        return;
-    }
-    
+
+
     LOG(INFO, LOG_TAG) << "Initializing chrony client for time synchronization with server: " << server_address;
     
     // Create a temporary directory for chrony configuration
