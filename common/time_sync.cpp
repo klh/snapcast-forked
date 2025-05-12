@@ -70,18 +70,53 @@ struct ChronyTrackingInfo {
     double estimated_error_ms{1.0};
     
     // Create from chronyc output
-    static ChronyTrackingInfo fromChronyc(bool csv_format = false) {
+    static ChronyTrackingInfo fromChronyc() {
         ChronyTrackingInfo info;
         
-        // Get raw output from chronyc
-        std::string cmd = csv_format ? "chronyc -c tracking 2>/dev/null" : "chronyc tracking 2>/dev/null";
+        // Always use CSV format for easier parsing
+        std::string cmd = "chronyc -c tracking 2>/dev/null";
         info.raw_output = execCommand(cmd);
         
-        // Simple heuristic for quality and error estimation
         if (!info.raw_output.empty()) {
-            // If we have output, assume decent quality
-            info.quality = 0.8;
-            info.estimated_error_ms = 1.0;
+            // Parse the CSV output
+            // Format: Reference ID,IP,Stratum,Ref time (UTC),System time,Last offset,RMS offset,Frequency,Residual freq,Skew,Root delay,Root dispersion,Update interval,Leap status
+            std::stringstream ss(info.raw_output);
+            std::string field;
+            std::vector<std::string> fields;
+            
+            // Split by commas
+            while (std::getline(ss, field, ',')) {
+                fields.push_back(field);
+            }
+            
+            // Parse relevant fields if we have enough
+            if (fields.size() >= 10) {
+                try {
+                    // RMS offset (field 6) is in seconds, convert to ms
+                    double rms_offset = std::stod(fields[6]) * 1000.0;
+                    
+                    // Root delay (field 10) is in seconds, convert to ms
+                    double root_delay = std::stod(fields[10]) * 1000.0;
+                    
+                    // Root dispersion (field 11) is in seconds, convert to ms
+                    double root_dispersion = std::stod(fields[11]) * 1000.0;
+                    
+                    // Use these values to calculate quality and error
+                    // Quality is inversely proportional to RMS offset
+                    info.quality = std::min(1.0, std::max(0.0, 1.0 - (rms_offset / 10.0)));
+                    
+                    // Error estimate is based on root dispersion and delay
+                    info.estimated_error_ms = root_dispersion + (root_delay / 2.0);
+                } catch (const std::exception& e) {
+                    LOG(WARNING, CHRONY_LOG_TAG) << "Error parsing chrony CSV output: " << e.what() << "\n";
+                    info.quality = 0.5; // Fallback to moderate quality
+                    info.estimated_error_ms = 5.0; // Conservative estimate
+                }
+            } else {
+                LOG(WARNING, CHRONY_LOG_TAG) << "Unexpected chrony CSV format\n";
+                info.quality = 0.5; // Fallback to moderate quality
+                info.estimated_error_ms = 5.0; // Conservative estimate
+            }
         } else {
             // No output means chrony isn't running or has issues
             info.quality = 0.0;
@@ -113,8 +148,8 @@ public:
     }
     
     // Get tracking information
-    ChronyTrackingInfo getTrackingInfo(bool csv_format = false) {
-        return ChronyTrackingInfo::fromChronyc(csv_format);
+    ChronyTrackingInfo getTrackingInfo() {
+        return ChronyTrackingInfo::fromChronyc();
     }
     
     // Check if chrony is available
@@ -134,33 +169,20 @@ namespace time_sync {
 
 SyncMode stringToSyncMode(const std::string& mode_str)
 {
-    if (mode_str == "auto_select")
-        return SyncMode::auto_select;
-    else if (mode_str == "fixed")
-        return SyncMode::fixed;
-    else if (mode_str == "client_guided")
-        return SyncMode::client_guided;
-    else if (mode_str == "server_guided")
-        return SyncMode::server_guided;
-    else if (mode_str == "disabled")
-        return SyncMode::disabled;
+    if (mode_str == "fixed") return SyncMode::fixed;
+    if (mode_str == "disabled") return SyncMode::disabled;
     
-    LOG(WARNING, LOG_TAG) << "Unknown sync mode: " << mode_str << ", using auto_select\n";
-    return SyncMode::auto_select;
+    // Default to fixed if not recognized
+    LOG(WARNING, LOG_TAG) << "Unknown sync mode: " << mode_str << ", defaulting to fixed (chrony)\n";
+    return SyncMode::fixed;
 }
 
 std::string syncModeToString(SyncMode mode)
 {
     switch (mode)
     {
-        case SyncMode::auto_select:
-            return "auto_select";
         case SyncMode::fixed:
             return "fixed";
-        case SyncMode::client_guided:
-            return "client_guided";
-        case SyncMode::server_guided:
-            return "server_guided";
         case SyncMode::disabled:
             return "disabled";
         default:
@@ -168,114 +190,25 @@ std::string syncModeToString(SyncMode mode)
     }
 }
 
-bool isTimeSourceAvailable(TimeSyncSource source)
+bool isChronyAvailable()
 {
-    switch (source)
+    // Check if chronyd is running
+    std::string result = execCommand("ps -ef | grep chrony[d] 2>/dev/null");
+    if (!result.empty())
     {
-        case TimeSyncSource::CHRONY:
-            // Use ChronyTracker to check if chrony is available
-            if (snapcast::ChronyTracker::getInstance().isAvailable()) {
-                LOG(DEBUG, LOG_TAG) << "Chrony available\n";
-                return true;
-            }
-            return false;
-            
-        case TimeSyncSource::PTP:
-            // Check if PTP is available
-            {
-                // Try checking for PTP devices
-                std::string result = execCommand("ls /dev/ptp* 2>/dev/null");
-                if (!result.empty() && result.find("/dev/ptp") != std::string::npos)
-                {
-                    LOG(DEBUG, LOG_TAG) << "PTP devices available\n";
-                    return true;
-                }
-                
-                // Check if PTP daemon is running
-                result = execCommand("ps -ef | grep ptp4[l] 2>/dev/null");
-                if (!result.empty())
-                {
-                    LOG(DEBUG, LOG_TAG) << "PTP daemon detected running\n";
-                    return true;
-                }
-                
-                return false;
-            }
-            
-        case TimeSyncSource::NTP:
-            // Check if NTP is available
-            {
-                // Check if ntpd is running
-                std::string result = execCommand("ps -ef | grep ntp[d] 2>/dev/null");
-                if (!result.empty())
-                {
-                    LOG(DEBUG, LOG_TAG) << "NTP daemon detected running\n";
-                    return true;
-                }
-                
-                // Check if systemd-timesyncd is running
-                result = execCommand("ps -ef | grep systemd-timesync[d] 2>/dev/null");
-                if (!result.empty())
-                {
-                    LOG(DEBUG, LOG_TAG) << "systemd-timesyncd detected running\n";
-                    return true;
-                }
-                
-                return false;
-            }
-            
-        case TimeSyncSource::MONOTONIC:
-            // Monotonic clock is always available
-            return true;
-            
-        case TimeSyncSource::SYSTEM:
-            // System clock is always available
-            return true;
-            
-        default:
-            return false;
-    }
-}
-
-TimeSyncSource selectBestTimeSource(
-    const std::map<TimeSyncSource, TimeSyncInfo>& sources,
-    TimeSyncSource preferred,
-    double min_quality)
-{
-    // If preferred source is specified and available with sufficient quality, use it
-    if (preferred != TimeSyncSource::NONE)
-    {
-        auto it = sources.find(preferred);
-        if (it != sources.end() && it->second.available && it->second.quality >= min_quality)
-        {
-            LOG(INFO, LOG_TAG) << "Using preferred time source: " 
-                              << timeSourceToString(preferred) << "\n";
-            return preferred;
-        }
+        LOG(DEBUG, LOG_TAG) << "Chrony daemon detected running\n";
+        return true;
     }
     
-    // Try sources in order of precision
-    std::vector<TimeSyncSource> ordered_sources = {
-        TimeSyncSource::CHRONY,
-        TimeSyncSource::PTP,
-        TimeSyncSource::NTP,
-        TimeSyncSource::MONOTONIC,
-        TimeSyncSource::SYSTEM
-    };
-    
-    for (const auto& source : ordered_sources)
+    // Check if chronyc is available
+    result = execCommand("which chronyc 2>/dev/null");
+    if (!result.empty())
     {
-        auto it = sources.find(source);
-        if (it != sources.end() && it->second.available && it->second.quality >= min_quality)
-        {
-            LOG(INFO, LOG_TAG) << "Selected time source: " << timeSourceToString(source) << "\n";
-            return source;
-        }
+        LOG(DEBUG, LOG_TAG) << "Chronyc binary detected\n";
+        return true;
     }
     
-    // If no source meets the quality threshold, use monotonic clock as fallback
-    LOG(WARNING, LOG_TAG) << "No time source meets quality threshold, using monotonic clock\n";
-    return TimeSyncSource::MONOTONIC;
+    return false;
 }
 
 std::string timeSourceToString(TimeSyncSource source)
@@ -284,14 +217,8 @@ std::string timeSourceToString(TimeSyncSource source)
     {
         case TimeSyncSource::CHRONY:
             return "Chrony";
-        case TimeSyncSource::PTP:
-            return "PTP";
-        case TimeSyncSource::NTP:
-            return "NTP";
         case TimeSyncSource::MONOTONIC:
             return "Monotonic";
-        case TimeSyncSource::SYSTEM:
-            return "System";
         case TimeSyncSource::NONE:
             return "None";
         default:
@@ -305,19 +232,13 @@ TimeSyncSource intToTimeSource(int source_int)
     {
         case 0:
             return TimeSyncSource::CHRONY;
-        case 1:
-            return TimeSyncSource::PTP;
-        case 2:
-            return TimeSyncSource::NTP;
         case 3:
             return TimeSyncSource::MONOTONIC;
-        case 4:
-            return TimeSyncSource::SYSTEM;
         case 255:
             return TimeSyncSource::NONE;
         default:
-            LOG(WARNING, LOG_TAG) << "Unknown time source: " << source_int << ", using NONE\n";
-            return TimeSyncSource::NONE;
+            LOG(WARNING, LOG_TAG) << "Unknown time source: " << source_int << ", using CHRONY\n";
+            return TimeSyncSource::CHRONY; // Default to CHRONY instead of NONE
     }
 }
 
@@ -331,17 +252,10 @@ static TimeValue queryTimeSource(TimeSyncSource source) {
     std::string raw;
     chronos::time_point_clk now;
     
-    // Use the appropriate chronos time function based on the source
     if (source == TimeSyncSource::MONOTONIC) {
-        now = chronos::clk::now(); // Use monotonic clock
+        // Use monotonic clock
+        now = chronos::clk::now();
         raw = "monotonic";
-    } else if (source == TimeSyncSource::SYSTEM) {
-        // Convert system time to chronos time_point_clk
-        struct timeval tv;
-        chronos::systemtimeofday(&tv);
-        auto duration = chronos::usec(tv.tv_sec * 1000000LL + tv.tv_usec);
-        now = chronos::time_point_clk(duration);
-        raw = "system";
     } else if (source == TimeSyncSource::CHRONY) {
         // Use chrony time
         now = chronos::clk::now(); // Use monotonic clock as base
@@ -349,16 +263,6 @@ static TimeValue queryTimeSource(TimeSyncSource source) {
         if (raw.empty()) {
             throw std::runtime_error("Chrony not available");
         }
-    } else if (source == TimeSyncSource::PTP) {
-        // Use PTP time
-        now = chronos::clk::now(); // Use monotonic clock as base
-        // TODO: Implement PTP time source
-        raw = "ptp";
-    } else if (source == TimeSyncSource::NTP) {
-        // Use NTP time
-        now = chronos::clk::now(); // Use monotonic clock as base
-        // TODO: Implement NTP time source
-        raw = "ntp";
     } else {
         throw std::runtime_error("Unknown time source");
     }
@@ -369,10 +273,6 @@ static TimeValue queryTimeSource(TimeSyncSource source) {
 TimeValue getTime(TimeSyncSource specific, const std::vector<TimeSyncSource>& preferred) {
     // If a specific time source is requested, try to use it
     if (specific != TimeSyncSource::NONE) {
-        if (!isTimeSourceAvailable(specific)) {
-            LOG(WARNING, LOG_TAG) << "Specified time source " << timeSourceToString(specific) << " not available\n";
-            throw std::runtime_error("Specified time source not available.");
-        }
         try {
             return queryTimeSource(specific);
         } catch (const std::exception& e) {
@@ -381,31 +281,20 @@ TimeValue getTime(TimeSyncSource specific, const std::vector<TimeSyncSource>& pr
         }
     }
 
-    // Try each preferred time source in order
-    for (auto& src : preferred) {
-        if (isTimeSourceAvailable(src)) {
-            try {
-                LOG(DEBUG, LOG_TAG) << "Trying time source: " << timeSourceToString(src) << "\n";
-                return queryTimeSource(src);
-            } catch (const std::exception& e) {
-                LOG(WARNING, LOG_TAG) << "Failed to get time from " << timeSourceToString(src) << ": " << e.what() << "\n";
-                continue;
-            }
-        }
+    // Try chrony first, then monotonic
+    try {
+        LOG(DEBUG, LOG_TAG) << "Using chrony time source\n";
+        return queryTimeSource(TimeSyncSource::CHRONY);
+    } catch (const std::exception& e) {
+        LOG(WARNING, LOG_TAG) << "Failed to get time from chrony: " << e.what() << "\n";
     }
 
-    // If all else fails, fall back to system time
-    LOG(WARNING, LOG_TAG) << "No valid time sources available, falling back to system time\n";
+    // Fall back to monotonic clock
+    LOG(WARNING, LOG_TAG) << "Falling back to monotonic clock\n";
     try {
-        // Use chronos utilities to get system time
-        struct timeval tv;
-        chronos::systemtimeofday(&tv);
-        auto duration = chronos::usec(tv.tv_sec * 1000000LL + tv.tv_usec);
-        chronos::time_point_clk now(duration);
-        
-        return TimeValue{TimeSyncSource::SYSTEM, now, "fallback_system_time"};
+        return queryTimeSource(TimeSyncSource::MONOTONIC);
     } catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Critical error: Failed to get system time: " << e.what() << "\n";
+        LOG(ERROR, LOG_TAG) << "Critical error: Failed to get monotonic time: " << e.what() << "\n";
         throw std::runtime_error("No valid time sources available.");
     }
 }
@@ -427,21 +316,9 @@ TimeSyncInfo getDefaultQualityMetrics(TimeSyncSource source)
                                    << ", error=" << info.estimated_error_ms << "ms\n";
             }
             break;
-        case TimeSyncSource::PTP:
-            info.quality = 0.9f;
-            info.estimated_error_ms = 0.5f;
-            break;
-        case TimeSyncSource::NTP:
-            info.quality = 0.7f;
-            info.estimated_error_ms = 5.0f;
-            break;
         case TimeSyncSource::MONOTONIC:
             info.quality = 0.5f;
             info.estimated_error_ms = 50.0f;
-            break;
-        case TimeSyncSource::SYSTEM:
-            info.quality = 0.4f;
-            info.estimated_error_ms = 100.0f;
             break;
         default:
             info.quality = 0.0f;
@@ -471,17 +348,17 @@ std::map<TimeSyncSource, TimeSyncInfo> getAllTimeSourcesInfo()
 {
     std::map<TimeSyncSource, TimeSyncInfo> time_sources;
     
-    // Check each time source
-    for (auto source : {TimeSyncSource::CHRONY, 
-                       TimeSyncSource::PTP, 
-                       TimeSyncSource::NTP, 
-                       TimeSyncSource::MONOTONIC, 
-                       TimeSyncSource::SYSTEM}) {
+    // Only check CHRONY and MONOTONIC sources
+    for (auto source : {TimeSyncSource::CHRONY, TimeSyncSource::MONOTONIC}) {
         // Get default quality metrics
         TimeSyncInfo info = getDefaultQualityMetrics(source);
         
-        // Check if the source is available
-        info.available = isTimeSourceAvailable(source);
+        // Set availability
+        if (source == TimeSyncSource::CHRONY) {
+            info.available = isChronyAvailable();
+        } else { // MONOTONIC
+            info.available = true; // Monotonic clock is always available
+        }
         
         // Store in map
         time_sources[source] = info;
@@ -558,9 +435,9 @@ void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
 }
 
 TimeStatus initAndLogTimeSync(const std::string& log_tag, 
-                               double diff_ms, 
-                               ProtocolVersion protocol_version,
-                               TimeSyncSource preferred_source)
+                                double diff_ms, 
+                                ProtocolVersion protocol_version,
+                                TimeSyncSource /* preferred_source */)
 {
     // Get all available time sources
     auto time_sources = getAllTimeSourcesInfo();
@@ -580,10 +457,10 @@ TimeStatus initAndLogTimeSync(const std::string& log_tag,
         selected_source = TimeSyncSource::MONOTONIC;
         LOG(INFO, log_tag) << "Server and client on same machine, using local clock";
     }
-    // Otherwise use system clock
+    // Otherwise use chrony
     else {
-        selected_source = TimeSyncSource::SYSTEM;
-        LOG(INFO, log_tag) << "Using system clock for time synchronization";
+        selected_source = TimeSyncSource::CHRONY;
+        LOG(INFO, log_tag) << "Using chrony for time synchronization";
     }
     
     // Get the source info
@@ -632,7 +509,9 @@ void populateTimeMessage(msg::Time* timeMsg,
     
     // If a specific time source is requested, try to use it
     if (source != TimeSyncSource::NONE) {
-        if (isTimeSourceAvailable(source)) {
+        bool source_available = (source == TimeSyncSource::MONOTONIC) || 
+                              (source == TimeSyncSource::CHRONY && isChronyAvailable());
+        if (source_available) {
             try {
                 auto time_value = queryTimeSource(source);
                 timeMsg->source = static_cast<uint8_t>(source);
@@ -670,7 +549,7 @@ void populateTimeMessage(msg::Time* timeMsg,
             // Use system time as last resort
             struct timeval tv;
             chronos::systemtimeofday(&tv);
-            timeMsg->source = static_cast<uint8_t>(TimeSyncSource::SYSTEM);
+            timeMsg->source = static_cast<uint8_t>(TimeSyncSource::CHRONY);
             timeMsg->quality = 0.4f;
             timeMsg->error_ms = 100.0f;
             // Set timestamp in the BaseMessage sent field
@@ -680,7 +559,7 @@ void populateTimeMessage(msg::Time* timeMsg,
     }
 }
 
-TimeStatus processTimeResponse(const msg::Time* response, double diff_ms)
+TimeStatus processTimeResponse(const msg::Time* response, double /* diff_ms */)
 {
     if (!response) {
         throw std::invalid_argument("Time response message is null");

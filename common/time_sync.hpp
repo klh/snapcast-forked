@@ -49,15 +49,13 @@ enum class ProtocolVersion : uint8_t
 
 /**
  * Time synchronization source types
+ * Note: Chrony is the only supported time source
  */
 enum class TimeSyncSource : uint8_t
 {
     NONE = 255,     ///< No specific time source
     CHRONY = 0,     ///< Chrony time source
-    PTP = 1,        ///< Precision Time Protocol
-    NTP = 2,        ///< Network Time Protocol
-    MONOTONIC = 3,  ///< Monotonic clock
-    SYSTEM = 4      ///< System time
+    MONOTONIC = 3   ///< Monotonic clock (used only when server and client are on same machine)
 };
 
 /**
@@ -77,10 +75,7 @@ struct TimeSyncInfo
  */
 enum class SyncMode
 {
-    auto_select,    ///< Automatically select best available source
-    fixed,          ///< Use only the preferred source
-    client_guided,  ///< Let clients decide based on their capabilities
-    server_guided,  ///< Let server guide source selection
+    fixed,          ///< Use chrony (the only supported source)
     disabled        ///< Disable time synchronization
 };
 
@@ -99,23 +94,10 @@ SyncMode stringToSyncMode(const std::string& mode_str);
 std::string syncModeToString(SyncMode mode);
 
 /**
- * Check if a time source is available on the system
- * @param source The time source to check
- * @return True if the time source is available
+ * Check if chrony is available on the system
+ * @return True if chrony is available
  */
-bool isTimeSourceAvailable(TimeSyncSource source);
-
-/**
- * Select the best available time source
- * @param sources Map of available time sources and their information
- * @param preferred Preferred time source (if any)
- * @param min_quality Minimum quality threshold (0.0-1.0)
- * @return The selected time source
- */
-TimeSyncSource selectBestTimeSource(
-    const std::map<TimeSyncSource, TimeSyncInfo>& sources,
-    TimeSyncSource preferred = TimeSyncSource::NONE,
-    double min_quality = 0.3);
+bool isChronyAvailable();
 
 /**
  * Get a string representation of a time source
@@ -359,10 +341,7 @@ TimeValue getTime(
     TimeSyncSource specific = TimeSyncSource::NONE,
     const std::vector<TimeSyncSource>& preferred = {
         TimeSyncSource::CHRONY,
-        TimeSyncSource::PTP,
-        TimeSyncSource::NTP,
-        TimeSyncSource::MONOTONIC,
-        TimeSyncSource::SYSTEM
+        TimeSyncSource::MONOTONIC
     });
 
 /**

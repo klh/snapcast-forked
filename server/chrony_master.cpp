@@ -41,7 +41,7 @@ ChronyMaster::~ChronyMaster() {
     stop();
 }
 
-bool ChronyMaster::init(const std::string& config_dir, uint16_t port) {
+bool ChronyMaster::init(const std::string& /* config_dir */, uint16_t port) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (running_) {

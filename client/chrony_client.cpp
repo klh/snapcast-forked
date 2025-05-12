@@ -315,7 +315,7 @@ uint16_t ChronyClient::getPort() const {
     return port_;
 }
 
-bool ChronyClient::configureClient(const std::string& server_address, uint16_t port) {
+bool ChronyClient::configureClient(const std::string& server_address, uint16_t /* port */) {
     // Configure chrony client with server and options using chronyc -a commands
     bool server_added = false;
     for (int retry = 0; retry < 3; retry++) {

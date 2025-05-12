@@ -49,19 +49,16 @@ protected:
     virtual ~TimeManager() = default;
     
     /**
-     * Detect available time sources on the system
+     * Check if chrony is available on the system
+     * @return True if chrony is available
      */
-    void detectAvailableTimeSources();
+    bool isChronyAvailable();
     
     /**
-     * Select the best available time source
-     * @param preferred Preferred time source (if any)
-     * @param min_quality Minimum quality threshold (0.0-1.0)
-     * @return The selected time source
+     * Get the time source to use (chrony or monotonic if on same machine)
+     * @return The time source to use
      */
-    time_sync::TimeSyncSource selectBestTimeSource(
-        time_sync::TimeSyncSource preferred = time_sync::TimeSyncSource::NONE,
-        double min_quality = 0.3);
+    time_sync::TimeSyncSource getTimeSource();
     
     /**
      * Get current time using the selected or specified time source

@@ -28,34 +28,52 @@ TimeManager::TimeManager() :
     protocol_version_(time_sync::ProtocolVersion::V1)
 {
     // Initialize available time sources
-    detectAvailableTimeSources();
+    // Initialize with chrony as the time source
+    current_source_ = time_sync::TimeSyncSource::CHRONY;
+    
+    // If chrony is not available, log a warning
+    if (!isChronyAvailable()) {
+        LOG(WARNING, LOG_TAG) << "Chrony is not available, but it is required for Snapcast\n";
+    }
 }
 
-void TimeManager::detectAvailableTimeSources()
+bool TimeManager::isChronyAvailable()
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    time_sources_ = time_sync::getAllTimeSourcesInfo();
+    return time_sync::isChronyAvailable();
 }
 
-time_sync::TimeSyncSource TimeManager::selectBestTimeSource(
-    time_sync::TimeSyncSource preferred, double min_quality)
+time_sync::TimeSyncSource TimeManager::getTimeSource()
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    time_sync::TimeSyncSource selected = time_sync::selectBestTimeSource(
-        time_sources_, preferred, min_quality);
-    current_source_ = selected;
-    return selected;
+    // Check if server and client are on the same machine
+    bool same_machine = false; // This should be determined elsewhere
+    
+    // Use monotonic clock if on same machine, otherwise use chrony
+    if (same_machine) {
+        return time_sync::TimeSyncSource::MONOTONIC;
+    }
+    
+    return time_sync::TimeSyncSource::CHRONY;
 }
 
 chronos::time_point_clk TimeManager::getCurrentTime(time_sync::TimeSyncSource specific)
 {
     try {
         time_sync::TimeValue timeValue;
+        
+        // If a specific source is requested, use it
         if (specific != time_sync::TimeSyncSource::NONE) {
+            // Only allow CHRONY or MONOTONIC
+            if (specific != time_sync::TimeSyncSource::CHRONY && 
+                specific != time_sync::TimeSyncSource::MONOTONIC) {
+                LOG(WARNING, LOG_TAG) << "Unsupported time source requested, using chrony\n";
+                specific = time_sync::TimeSyncSource::CHRONY;
+            }
             timeValue = time_sync::getTime(specific);
         } else {
+            // Use the current source (should be CHRONY or MONOTONIC)
             timeValue = time_sync::getTime(current_source_);
         }
+        
         return timeValue.timestamp;
     } catch (const std::exception& e) {
         LOG(WARNING, LOG_TAG) << "Error getting time: " << e.what() << ", using monotonic clock\n";
