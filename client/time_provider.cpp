@@ -34,8 +34,41 @@ TimeProvider::TimeProvider()
     verifyChrony();
 }
 
+void TimeProvider::setPreferredSource(time_sync::TimeSyncSource source)
+{
+    // Update the sync_info_ with the preferred source
+    sync_info_.source = source;
+    sync_info_.available = true;
+    
+    // Set quality and error based on source
+    if (source == time_sync::TimeSyncSource::MONOTONIC) {
+        sync_info_.quality = 0.95f; // Highest quality for monotonic clock
+        sync_info_.estimated_error_ms = 0.1f; // Lowest error for monotonic clock
+        LOG(INFO, LOG_TAG) << "Setting preferred time source to MONOTONIC";
+    } else if (source == time_sync::TimeSyncSource::CHRONY) {
+        sync_info_.quality = 0.9f; // High quality for chrony
+        sync_info_.estimated_error_ms = 1.0f; // Low error for chrony
+        LOG(INFO, LOG_TAG) << "Setting preferred time source to CHRONY";
+    } else {
+        // Default to system time
+        sync_info_.quality = 0.5f; // Medium quality for system time
+        sync_info_.estimated_error_ms = 10.0f; // Higher error for system time
+        LOG(INFO, LOG_TAG) << "Setting preferred time source to SYSTEM";
+    }
+    
+    // Update timestamp
+    sync_info_.last_update = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
 {
+    // If we have a preferred source set, return that
+    if (sync_info_.available) {
+        return sync_info_;
+    }
+    
+    // Otherwise, determine the best source based on configuration
     time_sync::TimeSyncInfo info;
     
     // Set source and availability based on configuration
@@ -45,19 +78,19 @@ time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
         info.available = true;
         info.quality = 0.95f; // Highest quality for local server
         info.estimated_error_ms = 0.1f; // Lowest error for local server
-        LOG(TRACE, LOG_TAG) << "Using MONOTONIC time source (local server)\n";
+        LOG(TRACE, LOG_TAG) << "Using MONOTONIC time source (local server)";
     } else if (chrony_available_) {
         info.source = time_sync::TimeSyncSource::CHRONY;
         info.available = true;
         info.quality = 0.9f; // High quality for chrony
         info.estimated_error_ms = 0.5f; // Very low error for chrony
-        LOG(TRACE, LOG_TAG) << "Using CHRONY time source\n";
+        LOG(TRACE, LOG_TAG) << "Using CHRONY time source";
     } else {
         info.source = time_sync::TimeSyncSource::NONE;
         info.available = true;
         info.quality = 0.5f; // Medium quality for system time
         info.estimated_error_ms = 10.0f; // Higher error for system time
-        LOG(TRACE, LOG_TAG) << "Using NONE time source (fallback)\n";
+        LOG(TRACE, LOG_TAG) << "Using NONE time source (fallback)";
     }
     
     // Set last update timestamp
