@@ -533,8 +533,8 @@ int main(int argc, char** argv)
             string time_mode = time_mode_opt->value();
             settings.time_sync.mode = time_sync::stringToSyncMode(time_mode);
             
-            // If time source is set and mode is auto_select, change to fixed mode
-            if (time_source_opt->is_set() && settings.time_sync.mode == time_sync::SyncMode::auto_select)
+            // If time source is set, ensure mode is fixed
+            if (time_source_opt->is_set() && settings.time_sync.mode != time_sync::SyncMode::fixed)
             {
                 settings.time_sync.mode = time_sync::SyncMode::fixed;
                 LOG(INFO, LOG_TAG) << "Time source specified, setting mode to 'fixed'\n";

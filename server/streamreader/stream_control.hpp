@@ -25,7 +25,9 @@
 
 // 3rd party headers
 #include <boost/asio/any_io_executor.hpp>
+#ifdef HAS_BOOST_PROCESS
 #include <boost/process.hpp>
+#endif
 
 // standard headers
 #include <filesystem>
@@ -33,7 +35,9 @@
 #include <string>
 
 
+#ifdef HAS_BOOST_PROCESS
 namespace bp = boost::process;
+#endif
 
 using json = nlohmann::json;
 
@@ -87,6 +91,7 @@ private:
     void doCommand(const jsonrpcpp::Request& request) override;
     void doStart(const std::string& stream_id, const ServerSettings& server_setttings) override;
 
+#ifdef HAS_BOOST_PROCESS
     void stderrReadLine();
     void stdoutReadLine();
 
@@ -97,6 +102,8 @@ private:
     std::unique_ptr<boost::asio::posix::stream_descriptor> stream_stderr_;
     boost::asio::streambuf streambuf_stdout_;
     boost::asio::streambuf streambuf_stderr_;
+    bp::opstream in_;
+#endif
 
     std::string script_;
     std::string params_;
