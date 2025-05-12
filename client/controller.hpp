@@ -62,7 +62,6 @@ private:
 
     void getNextMessage();
     void sendTimeSyncMessage(int quick_syncs = 0);
-    void reconnect();
     
     // Initialize and connect to the server's chrony master if chrony is selected as time source
     bool initChronyClient(const std::string& server_address);

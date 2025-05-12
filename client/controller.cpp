@@ -386,8 +386,8 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                 
                 // If server is using chrony, initialize chrony client
                 if (status.active_source == time_sync::TimeSyncSource::CHRONY) {
-                    // Extract server address from connection
-                    std::string server_address = clientConnection_->getHost();
+                    // Extract server address from connection settings
+                    std::string server_address = settings_.server.host;
                     initChronyClient(server_address);
                 }
             } else {
@@ -605,8 +605,8 @@ bool Controller::initChronyClient(const std::string& server_address)
     
     LOG(INFO, LOG_TAG) << "Initializing chrony client for time synchronization with server: " << server_address;
     
-    // Get config directory from settings
-    std::string config_dir = settings_.rundir + "/chrony";
+    // Create a temporary directory for chrony configuration
+    std::string config_dir = "/tmp/snapclient_chrony_" + settings_.host_id;
     
     // Initialize chrony client
     auto& chrony_client = snapclient::ChronyClient::getInstance();
@@ -631,5 +631,6 @@ bool Controller::initChronyClient(const std::string& server_address)
 void Controller::disconnectChronyClient()
 {
     LOG(INFO, LOG_TAG) << "Disconnecting from chrony server";
-    snapclient::ChronyClient::getInstance().disconnect();
+    // Note: ChronyClient doesn't have a disconnect method by design
+    // Chrony configuration persists until system restart
 }

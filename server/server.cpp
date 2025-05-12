@@ -285,7 +285,7 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
                 try {
                     // Use the standardized helper to populate the time message
                     // This will automatically select the best time source
-                    time_sync::populateTimeMessage(timeMsg, time_sync::TimeSyncSource::NONE, protocol_version);
+                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::NONE, protocol_version);
                     
                     // Log the selected time source
                     LOG(DEBUG, LOG_TAG) << "Server using time source: " 
@@ -295,7 +295,7 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
                     LOG(WARNING, LOG_TAG) << "Error getting time: " << e.what() << ", using system time\n";
                     
                     // Fall back to system time using the standardized helper
-                    time_sync::populateTimeMessage(timeMsg, time_sync::TimeSyncSource::SYSTEM, protocol_version);
+                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::SYSTEM, protocol_version);
                 }
             }
             else
@@ -333,11 +333,11 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
             LOG(ERROR, LOG_TAG) << "client not found: " << streamSession->clientId << "\n";
             return;
         }
-        msg::ClientInfo infoMsg;
-        infoMsg.deserialize(baseMessage, buffer);
+        auto infoMsg = std::make_shared<msg::ClientInfo>();
+        infoMsg->deserialize(baseMessage, buffer);
 
-        clientInfo->config.volume.percent = infoMsg.getVolume();
-        clientInfo->config.volume.muted = infoMsg.isMuted();
+        clientInfo->config.volume.percent = infoMsg->getVolume();
+        clientInfo->config.volume.muted = infoMsg->isMuted();
         jsonrpcpp::notification_ptr notification = make_shared<jsonrpcpp::Notification>(
             "Client.OnVolumeChanged", jsonrpcpp::Parameter("id", streamSession->clientId, "volume", clientInfo->config.volume.toJson()));
         controlServer_->send(notification->to_json().dump());
@@ -366,7 +366,7 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
         }
 
         LOG(DEBUG, LOG_TAG) << "Sending ServerSettings to " << streamSession->clientId << "\n";
-        auto serverSettings = make_shared<msg::ServerSettings>();
+        auto serverSettings = std::make_shared<msg::ServerSettings>();
         serverSettings->setVolume(client->config.volume.percent);
         serverSettings->setMuted(client->config.volume.muted || group->muted);
         serverSettings->setLatency(client->config.latency);
@@ -527,8 +527,8 @@ bool Server::initChronyMaster()
     
     LOG(INFO, LOG_TAG) << "Initializing chrony master for time synchronization";
     
-    // Get config directory from settings
-    std::string config_dir = settings_.rundir + "/chrony";
+    // Create a temporary directory for chrony configuration
+    std::string config_dir = "/tmp/snapserver_chrony";
     
     // Initialize chrony master
     auto& chrony_master = snapserver::ChronyMaster::getInstance();

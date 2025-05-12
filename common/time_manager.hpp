@@ -70,7 +70,13 @@ protected:
      */
     chronos::time_point_clk getCurrentTime(
         time_sync::TimeSyncSource specific = time_sync::TimeSyncSource::NONE);
-        
+    
+    /**
+     * Get current time source information
+     * @return Time sync info for the current source
+     */
+    time_sync::TimeSyncInfo getCurrentSourceInfo() const;
+    
     /**
      * Get protocol version
      * @return Current protocol version
@@ -82,12 +88,6 @@ protected:
      * @param version Protocol version to set
      */
     void setProtocolVersion(time_sync::ProtocolVersion version);
-    
-    /**
-     * Get current time source information
-     * @return Time sync info for the current source
-     */
-    time_sync::TimeSyncInfo getCurrentSourceInfo() const;
 };
 
 } // namespace snapcast

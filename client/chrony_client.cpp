@@ -249,11 +249,12 @@ bool ChronyClient::connectToServer(const std::string& server_address, uint16_t p
     // Mark as connected
     connected_ = true;
     
-    LOG(NOTICE, LOG_TAG) << "Connected to chrony server at " << server_address_ << "\n";
     return true;
 }
 
-// No disconnect implementation - chrony configuration persists until system restart
+
+
+
 
 bool ChronyClient::isConnected() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -287,7 +288,7 @@ std::string ChronyClient::getStatus() const
     return status.str();
 }
 
-std::optional<snapcast::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
+std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
     if (!isConnected()) {
         return std::nullopt;
     }
