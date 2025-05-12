@@ -489,9 +489,8 @@ void Server::start()
 
         // Log time synchronization information
         try {
-            // Get comprehensive time status and log it
-            time_sync::TimeStatus status = time_sync::getTimeStatus();
-            time_sync::logTimeStatus(status, LOG_TAG);
+            // Initialize and log time synchronization using the standardized function
+            time_sync::initAndLogTimeSync(LOG_TAG);
         } catch (const std::exception& e) {
             LOG(WARNING, LOG_TAG) << "Failed to initialize time synchronization: " << e.what();
         }

@@ -489,4 +489,57 @@ void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
     }
 }
 
+TimeStatus initAndLogTimeSync(const std::string& log_tag, 
+                              double diff_ms, 
+                              ProtocolVersion protocol_version,
+                              TimeSyncSource preferred_source)
+{
+    // Get all available time sources
+    auto time_sources = getAllTimeSourcesInfo();
+    
+    // Select the best time source
+    TimeSyncSource selected_source;
+    if (preferred_source != TimeSyncSource::NONE) {
+        // Use preferred source if specified and available
+        auto it = time_sources.find(preferred_source);
+        if (it != time_sources.end() && it->second.available) {
+            selected_source = preferred_source;
+            LOG(DEBUG, log_tag) << "Using preferred time source: " 
+                               << timeSourceToString(preferred_source);
+        } else {
+            // Fall back to best available
+            selected_source = selectBestTimeSource(time_sources, preferred_source);
+            LOG(DEBUG, log_tag) << "Preferred source " 
+                               << timeSourceToString(preferred_source)
+                               << " not available, using " 
+                               << timeSourceToString(selected_source);
+        }
+    } else {
+        // No preference, select best available
+        selected_source = selectBestTimeSource(time_sources);
+        LOG(DEBUG, log_tag) << "Selected best available time source: " 
+                           << timeSourceToString(selected_source);
+    }
+    
+    // Get the source info
+    TimeSyncInfo sourceInfo;
+    auto it = time_sources.find(selected_source);
+    if (it != time_sources.end()) {
+        sourceInfo = it->second;
+    } else {
+        sourceInfo = getDefaultQualityMetrics(selected_source);
+    }
+    
+    // Create time status with all information
+    TimeStatus status = getTimeStatus(diff_ms);
+    status.active_source = selected_source;
+    status.active_source_info = sourceInfo;
+    status.protocol_version = protocol_version;
+    
+    // Log the time status
+    logTimeStatus(status, log_tag);
+    
+    return status;
+}
+
 } // namespace time_sync

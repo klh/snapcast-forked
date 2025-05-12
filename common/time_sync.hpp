@@ -183,6 +183,20 @@ TimeStatus getTimeStatus(double diff_ms = 0);
 void logTimeStatus(const TimeStatus& status, const std::string& log_tag);
 
 /**
+ * Initialize and log time synchronization status in a standardized way
+ * This function should be used by both client and server for consistent logging
+ * @param log_tag The tag to use for logging
+ * @param diff_ms Optional time difference to server in ms (for client only)
+ * @param protocol_version Optional protocol version (defaults to V2)
+ * @param preferred_source Optional preferred time source
+ * @return The initialized TimeStatus object
+ */
+TimeStatus initAndLogTimeSync(const std::string& log_tag, 
+                              double diff_ms = 0, 
+                              ProtocolVersion protocol_version = ProtocolVersion::V2,
+                              TimeSyncSource preferred_source = TimeSyncSource::NONE);
+
+/**
  * Get current time from the best available or specified time source
  * @param specific Specific time source to use (NONE for auto-selection)
  * @param preferred Ordered list of preferred time sources to try

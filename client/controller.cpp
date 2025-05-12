@@ -565,14 +565,13 @@ void Controller::worker()
                     diff_ms = timeProvider.getDiffToServer<std::chrono::microseconds>().count() / 1000.0;
                 }
                 
-                // Create time status with client-specific information
-                time_sync::TimeStatus status = time_sync::getTimeStatus(diff_ms);
-                status.active_source = syncInfo.source;
-                status.active_source_info = syncInfo;
-                status.protocol_version = timeProvider.getProtocolVersion();
-                
-                // Log the time status
-                time_sync::logTimeStatus(status, LOG_TAG);
+                // Initialize and log time synchronization using the standardized function
+                // Pass client-specific parameters: diff_ms, protocol version, and preferred source
+                time_sync::initAndLogTimeSync(
+                    LOG_TAG,
+                    diff_ms,
+                    timeProvider.getProtocolVersion(),
+                    syncInfo.source);
             } catch (const std::exception& e) {
                 LOG(WARNING, LOG_TAG) << "Failed to log time synchronization info: " << e.what();
             }
