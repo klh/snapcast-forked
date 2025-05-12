@@ -4,6 +4,7 @@ set(CLIENT_SOURCES
     snapclient.cpp
     stream.cpp
     time_provider.cpp
+    chrony_client.cpp
     decoder/pcm_decoder.cpp
     decoder/null_decoder.cpp
     player/player.cpp
