@@ -68,6 +68,15 @@ private:
     void onMessageReceived(StreamSession* streamSession, const msg::BaseMessage& baseMessage, char* buffer) override;
     void onDisconnect(StreamSession* streamSession) override;
 
+    void startAccept();
+    void handleAccept(tcp::socket socket, const boost::system::error_code& error);
+    
+    // Initialize and start chrony master if chrony is selected as time source
+    bool initChronyMaster();
+    
+    // Stop chrony master if it's running
+    void stopChronyMaster();
+
     /// Implementation of ControllMessageReceiver
     void onMessageReceived(std::shared_ptr<ControlSession> controlSession, const std::string& message, const ResponseHandler& response_handler) override;
     void onNewSession(std::shared_ptr<ControlSession> session) override

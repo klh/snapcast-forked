@@ -61,7 +61,14 @@ private:
     std::unique_ptr<player::Player> createPlayer(ClientSettings::Player& settings, const std::string& player_name);
 
     void getNextMessage();
-    void sendTimeSyncMessage(int quick_syncs);
+    void sendTimeSyncMessage(int quick_syncs = 0);
+    void reconnect();
+    
+    // Initialize and connect to the server's chrony master if chrony is selected as time source
+    bool initChronyClient(const std::string& server_address);
+    
+    // Disconnect from the server's chrony master
+    void disconnectChronyClient();
 
     boost::asio::io_context& io_context_;
 #ifdef HAS_OPENSSL

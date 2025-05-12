@@ -63,6 +63,7 @@
 #include "common/message/time.hpp"
 #include "common/snap_exception.hpp"
 #include "time_provider.hpp"
+#include "chrony_client.hpp"
 
 // standard headers
 #include <algorithm>
@@ -321,7 +322,7 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
 {
     auto timeReq = std::make_shared<msg::Time>();
     
-    // Set protocol version and time source information for V2+ protocol
+    // Use the standardized helper to populate the time message
     auto& timeProvider = TimeProvider::getInstance();
     time_sync::ProtocolVersion protocol_version = timeProvider.getProtocolVersion();
     
@@ -329,20 +330,16 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
         // For V2+ protocol, include time source information
         time_sync::TimeSyncInfo syncInfo = timeProvider.getSyncInfo();
         
-        // Set protocol version
-        timeReq->version = static_cast<uint8_t>(protocol_version);
-        
-        // Set time source information
-        timeReq->source = static_cast<uint8_t>(syncInfo.source);
-        timeReq->quality = syncInfo.quality;
-        timeReq->error_ms = syncInfo.estimated_error_ms;
+        // Use the standardized helper to populate the time message
+        time_sync::populateTimeMessage(timeReq.get(), syncInfo.source, protocol_version);
         
         LOG(DEBUG, LOG_TAG) << "Sending time sync message with protocol V" 
                             << static_cast<int>(timeReq->version) 
-                            << ", source: " << time_sync::timeSourceToString(syncInfo.source) 
-                            << ", quality: " << syncInfo.quality << "\n";
+                            << ", source: " << time_sync::timeSourceToString(static_cast<time_sync::TimeSyncSource>(timeReq->source)) 
+                            << ", quality: " << timeReq->quality << "\n";
     } else {
         // For V1 protocol, only send latency information
+        timeReq->version = static_cast<uint8_t>(time_sync::ProtocolVersion::V1);
         LOG(DEBUG, LOG_TAG) << "Sending time sync message with legacy protocol V1\n";
     }
     
@@ -361,38 +358,48 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
         // Set time difference from response
         timeProvider.setDiff(response->latency, response->received - response->sent);
         
-        // Handle protocol version detection using the shared implementation
-        time_sync::ProtocolVersion version = time_sync::ensureValidProtocolVersion(response->version);
-        if (version != timeProvider.getProtocolVersion()) {
-            timeProvider.setProtocolVersion(version);
-            LOG(INFO, LOG_TAG) << "Detected time sync protocol version: " << static_cast<int>(version) << "\n";
-        }
-        
-        // For V2+ protocol, negotiate time source with server
-        if (version > time_sync::ProtocolVersion::V1) {
-            // Create server info using the shared implementation for consistency
-            time_sync::TimeSyncInfo serverInfo = time_sync::getDefaultQualityMetrics(
-                static_cast<time_sync::TimeSyncSource>(response->source));
+        try {
+            // Calculate time difference to server in ms
+            double diff_ms = 0;
+            if (timeProvider.getProtocolVersion() > time_sync::ProtocolVersion::V1) {
+                diff_ms = timeProvider.getDiffToServer<std::chrono::microseconds>().count() / 1000.0;
+            }
             
-            // Update with values from the server
-            serverInfo.source = static_cast<time_sync::TimeSyncSource>(response->source);
-            serverInfo.quality = response->quality;
-            serverInfo.estimated_error_ms = response->error_ms;
-            serverInfo.available = true;
+            // Process the time response using the standardized helper
+            time_sync::TimeStatus status = time_sync::processTimeResponse(response.get(), diff_ms);
             
-            LOG(DEBUG, LOG_TAG) << "Server time source: " 
-                               << time_sync::timeSourceToString(serverInfo.source) 
-                               << ", quality: " << serverInfo.quality << "\n";
+            // Update protocol version if changed
+            if (status.protocol_version != timeProvider.getProtocolVersion()) {
+                timeProvider.setProtocolVersion(status.protocol_version);
+                LOG(INFO, LOG_TAG) << "Detected time sync protocol version: " 
+                                  << static_cast<int>(status.protocol_version) << "\n";
+            }
             
-            // Negotiate the best time source with the server
-            timeProvider.negotiateSyncSource(serverInfo);
-        } else {
-            // For V1 protocol, use fallback mode with the shared implementation
-            time_sync::TimeSyncInfo fallbackInfo = time_sync::getDefaultQualityMetrics(time_sync::TimeSyncSource::MONOTONIC);
-            fallbackInfo.available = true;
-            
-            // Set fallback mode for backward compatibility
-            timeProvider.setFallbackMode(fallbackInfo);
+            // For V2+ protocol, negotiate time source with server
+            if (status.protocol_version > time_sync::ProtocolVersion::V1) {
+                LOG(DEBUG, LOG_TAG) << "Server time source: " 
+                                   << time_sync::timeSourceToString(status.active_source) 
+                                   << ", quality: " << status.active_source_info.quality << "\n";
+                
+                // Negotiate the best time source with the server
+                timeProvider.negotiateSyncSource(status.active_source_info);
+                
+                // If server is using chrony, initialize chrony client
+                if (status.active_source == time_sync::TimeSyncSource::CHRONY) {
+                    // Extract server address from connection
+                    std::string server_address = clientConnection_->getHost();
+                    initChronyClient(server_address);
+                }
+            } else {
+                // For V1 protocol, use fallback mode with monotonic clock
+                time_sync::TimeSyncInfo fallbackInfo = time_sync::getDefaultQualityMetrics(time_sync::TimeSyncSource::MONOTONIC);
+                fallbackInfo.available = true;
+                
+                // Set fallback mode for backward compatibility
+                timeProvider.setFallbackMode(fallbackInfo);
+            }
+        } catch (const std::exception& e) {
+            LOG(ERROR, LOG_TAG) << "Error processing time response: " << e.what() << "\n";
         }
         
         // Determine next sync interval
@@ -585,4 +592,44 @@ void Controller::worker()
             reconnect();
         }
     });
+}
+
+bool Controller::initChronyClient(const std::string& server_address)
+{
+    static bool initialized = false;
+    
+    // Only initialize once
+    if (initialized) {
+        return true;
+    }
+    
+    LOG(INFO, LOG_TAG) << "Initializing chrony client for time synchronization with server: " << server_address;
+    
+    // Get config directory from settings
+    std::string config_dir = settings_.rundir + "/chrony";
+    
+    // Initialize chrony client
+    auto& chrony_client = snapclient::ChronyClient::getInstance();
+    if (!chrony_client.init(config_dir)) {
+        LOG(ERROR, LOG_TAG) << "Failed to initialize chrony client";
+        return false;
+    }
+    
+    // Connect to the server's chrony master
+    // Default chrony port is 323
+    if (!chrony_client.connectToServer(server_address)) {
+        LOG(ERROR, LOG_TAG) << "Failed to connect to chrony server at " << server_address;
+        return false;
+    }
+    
+    LOG(NOTICE, LOG_TAG) << "Connected to chrony server at " << server_address;
+    
+    initialized = true;
+    return true;
+}
+
+void Controller::disconnectChronyClient()
+{
+    LOG(INFO, LOG_TAG) << "Disconnecting from chrony server";
+    snapclient::ChronyClient::getInstance().disconnect();
 }

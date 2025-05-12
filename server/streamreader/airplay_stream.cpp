@@ -23,6 +23,7 @@
 #include "common/aixlog.hpp"
 #include "common/base64.h"
 #include "common/snap_exception.hpp"
+#include "common/stream_error_handler.hpp"
 #include "common/utils/file_utils.hpp"
 
 // system headers
@@ -257,9 +258,11 @@ void AirplayStream::pipeReadLine()
         }
         catch (const std::exception& e)
         {
-            LOG(ERROR, LOG_TAG) << "Error opening metadata pipe, retrying in 500ms. Error: " << e.what() << "\n";
             pipe_fd_ = nullptr;
-            wait(pipe_open_timer_, 500ms, [this] { pipeReadLine(); });
+            snapcast::StreamErrorHandler::handleResourceError(
+                pipePath_, LOG_TAG, pipe_open_timer_,
+                [this] { pipeReadLine(); },
+                std::chrono::milliseconds(500));
             return;
         }
     }

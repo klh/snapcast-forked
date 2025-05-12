@@ -21,12 +21,13 @@
 
 // local headers
 #include "common/aixlog.hpp"
-#include "common/message/client_info.hpp"
 #include "common/message/hello.hpp"
-#include "common/message/server_settings.hpp"
 #include "common/message/time.hpp"
-#include "config.hpp"
-#include "jsonrpcpp.hpp"
+#include "common/snap_exception.hpp"
+#include "common/time_defs.hpp"
+#include "common/utils.hpp"
+#include "common/time_sync.hpp"
+#include "chrony_master.hpp"
 
 // 3rd party headers
 
@@ -265,16 +266,14 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
         // Handle protocol versioning for time synchronization
         if (timeMsg->type == message_type::kTime && timeMsg->size > sizeof(msg::BaseMessage))
         {
-            // Use the shared implementation to ensure valid protocol version
-            // This will default to V1 if no version is specified
+            // Get protocol version from client message
             time_sync::ProtocolVersion protocol_version = time_sync::ensureValidProtocolVersion(timeMsg->version);
-            timeMsg->version = static_cast<uint8_t>(protocol_version);
             
             // Check if client is using V2+ protocol
             if (protocol_version >= time_sync::ProtocolVersion::V2)
             {
                 // Enhanced protocol - include time source information in response
-                LOG(DEBUG, LOG_TAG) << "Client using time sync protocol V" << static_cast<int>(timeMsg->version) << "\n";
+                LOG(DEBUG, LOG_TAG) << "Client using time sync protocol V" << static_cast<int>(protocol_version) << "\n";
                 
                 // Get client time source information
                 time_sync::TimeSyncSource client_source = static_cast<time_sync::TimeSyncSource>(timeMsg->source);
@@ -284,38 +283,19 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
                                    << ", quality: " << client_quality << "\n";
                 
                 try {
-                    // Get information about all time sources using the shared implementation
-                    auto time_sources = time_sync::getAllTimeSourcesInfo();
+                    // Use the standardized helper to populate the time message
+                    // This will automatically select the best time source
+                    time_sync::populateTimeMessage(timeMsg, time_sync::TimeSyncSource::NONE, protocol_version);
                     
-                    // Use the time_sync implementation to select the best source
-                    time_sync::TimeSyncSource server_source = time_sync::selectBestTimeSource(time_sources);
-                    
-                    // Get the quality and error from the time_sources map
-                    auto it = time_sources.find(server_source);
-                    if (it == time_sources.end()) {
-                        throw std::runtime_error("Selected time source not found");
-                    }
-                    
-                    // Set the response fields
-                    timeMsg->version = static_cast<uint8_t>(time_sync::ProtocolVersion::V2);
-                    timeMsg->source = static_cast<uint8_t>(server_source);
-                    timeMsg->quality = it->second.quality;
-                    timeMsg->error_ms = it->second.estimated_error_ms;
-                    
+                    // Log the selected time source
                     LOG(DEBUG, LOG_TAG) << "Server using time source: " 
-                                       << time_sync::timeSourceToString(server_source) 
-                                       << ", quality: " << it->second.quality << "\n";
+                                       << time_sync::timeSourceToString(static_cast<time_sync::TimeSyncSource>(timeMsg->source)) 
+                                       << ", quality: " << timeMsg->quality << "\n";
                 } catch (const std::exception& e) {
                     LOG(WARNING, LOG_TAG) << "Error getting time: " << e.what() << ", using system time\n";
                     
-                    // Fall back to system time using the shared implementation for consistency
-                    time_sync::TimeSyncInfo fallback = time_sync::getDefaultQualityMetrics(time_sync::TimeSyncSource::SYSTEM);
-                    
-                    // Set fallback values
-                    timeMsg->version = static_cast<uint8_t>(time_sync::ProtocolVersion::V2);
-                    timeMsg->source = static_cast<uint8_t>(time_sync::TimeSyncSource::SYSTEM);
-                    timeMsg->quality = fallback.quality;
-                    timeMsg->error_ms = fallback.estimated_error_ms;
+                    // Fall back to system time using the standardized helper
+                    time_sync::populateTimeMessage(timeMsg, time_sync::TimeSyncSource::SYSTEM, protocol_version);
                 }
             }
             else
@@ -336,6 +316,13 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
             // This avoids timezone issues when calculating time differences
             chronos::steadytimeofday(&client->lastSeen);
             client->connected = true;
+            
+            // If we're using chrony as time source and the client is requesting chrony,
+            // make sure our chrony master is running
+            if (timeMsg->version >= static_cast<uint8_t>(time_sync::ProtocolVersion::V2) && 
+                static_cast<time_sync::TimeSyncSource>(timeMsg->source) == time_sync::TimeSyncSource::CHRONY) {
+                initChronyMaster();
+            }
         }
     }
     else if (baseMessage.type == message_type::kClientInfo)
@@ -527,4 +514,45 @@ void Server::stop()
         streamServer_->stop();
         streamServer_ = nullptr;
     }
+}
+
+bool Server::initChronyMaster()
+{
+    static bool initialized = false;
+    
+    // Only initialize once
+    if (initialized) {
+        return true;
+    }
+    
+    LOG(INFO, LOG_TAG) << "Initializing chrony master for time synchronization";
+    
+    // Get config directory from settings
+    std::string config_dir = settings_.rundir + "/chrony";
+    
+    // Initialize chrony master
+    auto& chrony_master = snapserver::ChronyMaster::getInstance();
+    if (!chrony_master.init(config_dir)) {
+        LOG(ERROR, LOG_TAG) << "Failed to initialize chrony master";
+        return false;
+    }
+    
+    // Start chrony master
+    if (!chrony_master.start()) {
+        LOG(ERROR, LOG_TAG) << "Failed to start chrony master";
+        return false;
+    }
+    
+    // Log server address for clients
+    LOG(NOTICE, LOG_TAG) << "Chrony master started on " << chrony_master.getServerAddress() 
+                        << ":" << chrony_master.getPort();
+    
+    initialized = true;
+    return true;
+}
+
+void Server::stopChronyMaster()
+{
+    LOG(INFO, LOG_TAG) << "Stopping chrony master";
+    snapserver::ChronyMaster::getInstance().stop();
 }

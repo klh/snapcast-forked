@@ -19,6 +19,7 @@
 #include "time_sync.hpp"
 #include "aixlog.hpp"
 #include "time_defs.hpp"
+#include "chrony_tracker.hpp"
 
 #include <algorithm>
 #include <array>
@@ -90,22 +91,10 @@ bool isTimeSourceAvailable(TimeSyncSource source)
     switch (source)
     {
         case TimeSyncSource::CHRONY:
-            // Check if chronyc is available and running
-            {
-                std::string result = execCommand("chronyc tracking 2>/dev/null");
-                if (!result.empty() && result.find("Reference ID") != std::string::npos)
-                {
-                    LOG(DEBUG, LOG_TAG) << "Chrony available via chronyc\n";
-                    return true;
-                }
-                
-                // Try alternative method to detect chrony
-                result = execCommand("ps -ef | grep chrony[d] 2>/dev/null");
-                if (!result.empty())
-                {
-                    LOG(DEBUG, LOG_TAG) << "Chrony daemon detected running\n";
-                    return true;
-                }
+            // Use ChronyTracker to check if chrony is available
+            if (snapcast::ChronyTracker::getInstance().isAvailable()) {
+                LOG(DEBUG, LOG_TAG) << "Chrony available\n";
+                return true;
             }
             return false;
             
@@ -290,7 +279,8 @@ static TimeValue queryTimeSource(TimeSyncSource source) {
         
         switch (source) {
             case TimeSyncSource::CHRONY:
-                raw = execCommand("chronyc tracking 2>/dev/null");
+                // Get raw tracking output directly from chronyc
+                raw = snapcast::ChronyTracker::getInstance().getRawTracking();
                 break;
             case TimeSyncSource::PTP:
                 raw = execCommand("pmc -u -b 0 'GET TIME_STATUS_NP' 2>/dev/null");
@@ -365,8 +355,14 @@ TimeSyncInfo getDefaultQualityMetrics(TimeSyncSource source)
     // Set default quality metrics based on source type
     switch (source) {
         case TimeSyncSource::CHRONY:
-            info.quality = 1.0f;
-            info.estimated_error_ms = 0.1f;
+            {
+                // Use ChronyTracker to get quality metrics
+                auto tracking_info = snapcast::ChronyTracker::getInstance().getTrackingInfo();
+                info.quality = static_cast<float>(tracking_info.quality);
+                info.estimated_error_ms = static_cast<float>(tracking_info.estimated_error_ms);
+                LOG(DEBUG, LOG_TAG) << "Using chrony quality metrics: quality=" << info.quality 
+                                   << ", error=" << info.estimated_error_ms << "ms\n";
+            }
             break;
         case TimeSyncSource::PTP:
             info.quality = 0.9f;
@@ -460,19 +456,24 @@ TimeStatus getTimeStatus(double diff_ms)
     return status;
 }
 
-void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
-{
-    // Log active time source and its quality
-    LOG(NOTICE, log_tag) << "Time synchronization initialized using " 
                         << timeSourceToString(status.active_source) 
                         << " (quality: " << status.active_source_info.quality 
                         << ", estimated error: " << status.active_source_info.estimated_error_ms << "ms)";
     
-    // Log current time information with proper spacing
-    LOG(INFO, log_tag) << "Current time source: " 
-                      << timeSourceToString(status.current_time.source) 
-                      << ", quality: " << status.current_time.quality 
-                      << ", error: " << status.current_time.estimated_error_ms << "ms";
+    // For chrony, directly show the raw chronyc output
+    if (status.active_source == TimeSyncSource::CHRONY) {
+        // Get raw output from chronyc
+        std::string chrony_output = snapcast::ChronyTracker::getInstance().getRawTracking();
+        if (!chrony_output.empty()) {
+            LOG(INFO, log_tag) << "Chrony tracking information:\n" << chrony_output;
+        }
+    } else {
+        // For other sources, log standard information
+        LOG(INFO, log_tag) << "Current time source: " 
+                          << timeSourceToString(status.current_time.source) 
+                          << ", quality: " << status.current_time.quality 
+                          << ", error: " << status.current_time.estimated_error_ms << "ms";
+    }
     
     // Log protocol version as a separate log entry
     if (status.protocol_version > ProtocolVersion::V1) {
@@ -487,8 +488,6 @@ void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
     } else {
         LOG(INFO, log_tag) << "Using legacy time sync protocol V1";
     }
-}
-
 TimeStatus initAndLogTimeSync(const std::string& log_tag, 
                               double diff_ms, 
                               ProtocolVersion protocol_version,
@@ -549,4 +548,116 @@ TimeStatus initAndLogTimeSync(const std::string& log_tag,
     return status;
 }
 
+void populateTimeMessage(msg::Time* timeMsg, 
+                         TimeSyncSource source,
+                         ProtocolVersion version)
+{
+    if (!timeMsg) return;
+    
+    // Set protocol version
+    timeMsg->version = static_cast<uint8_t>(version);
+    
+    if (version >= ProtocolVersion::V2) {
+        // Get time sources once to avoid race condition
+        auto time_sources = getAllTimeSourcesInfo();
+        
+        // For V2+ protocol, include time source information
+        if (source == TimeSyncSource::NONE) {
+            // Auto-select best source
+            source = selectBestTimeSource(time_sources);
+        }
+        
+        // Get source info
+        TimeSyncInfo sourceInfo = getDefaultQualityMetrics(source);
+        auto it = time_sources.find(source);
+        if (it != time_sources.end()) {
+            sourceInfo = it->second;
+        }
+        
+        // Set time source information
+        timeMsg->source = static_cast<uint8_t>(source);
+        timeMsg->quality = sourceInfo.quality;
+        timeMsg->error_ms = sourceInfo.estimated_error_ms;
+    }
+}
+
+TimeStatus processTimeResponse(const msg::Time* response, double diff_ms)
+{
+    if (!response) {
+        throw std::invalid_argument("Null time response");
+    }
+    
+    // Create time status
+    TimeStatus status;
+    
+    // Set protocol version
+    status.protocol_version = ensureValidProtocolVersion(response->version);
+    
+    // Set time difference
+    status.diff_ms = diff_ms;
+    
+    // For V2+ protocol, extract time source information
+    if (status.protocol_version >= ProtocolVersion::V2) {
+        TimeSyncSource source = static_cast<TimeSyncSource>(response->source);
+        status.active_source = source;
+        
+        // Create source info
+        TimeSyncInfo sourceInfo = getDefaultQualityMetrics(source);
+        sourceInfo.quality = response->quality;
+        sourceInfo.estimated_error_ms = response->error_ms;
+        sourceInfo.available = true;
+        
+        status.active_source_info = sourceInfo;
+    } else {
+        // For V1 protocol, use monotonic clock
+        status.active_source = TimeSyncSource::MONOTONIC;
+        status.active_source_info = getDefaultQualityMetrics(TimeSyncSource::MONOTONIC);
+    }
+    
+    // Get available sources
+    status.available_sources = getAllTimeSourcesInfo();
+    
+    // Get current time
+    status.current_time = getTime(status.active_source);
+    
+    return status;
+}
+
 } // namespace time_sync
+void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
+{
+    // Log active time source and its quality
+    LOG(NOTICE, log_tag) << "Time synchronization initialized using " 
+                        << timeSourceToString(status.active_source) 
+                        << " (quality: " << status.active_source_info.quality 
+                        << ", estimated error: " << status.active_source_info.estimated_error_ms << "ms)";
+    
+    // For chrony, directly show the raw chronyc output
+    if (status.active_source == TimeSyncSource::CHRONY) {
+        // Get raw output from chronyc
+        std::string chrony_output = snapcast::ChronyTracker::getInstance().getRawTracking();
+        if (!chrony_output.empty()) {
+            LOG(INFO, log_tag) << "Chrony tracking information:\n" << chrony_output;
+        }
+    } else {
+        // For other sources, log standard information
+        LOG(INFO, log_tag) << "Current time source: " 
+                          << timeSourceToString(status.current_time.source) 
+                          << ", quality: " << status.current_time.quality 
+                          << ", error: " << status.current_time.estimated_error_ms << "ms";
+    }
+    
+    // Log protocol version as a separate log entry
+    if (status.protocol_version > ProtocolVersion::V1) {
+        LOG(INFO, log_tag) << "Time sync protocol version: V" 
+                          << static_cast<int>(status.protocol_version);
+        
+        // Log time difference if available
+        if (status.diff_ms != 0) {
+            LOG(INFO, log_tag) << "Time difference to server: " 
+                              << status.diff_ms << "ms";
+        }
+    } else {
+        LOG(INFO, log_tag) << "Using legacy time sync protocol V1";
+    }
+}

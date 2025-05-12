@@ -23,6 +23,7 @@
 #include "common/message/message.hpp"
 #include "common/time_defs.hpp"
 #include "common/time_sync.hpp"
+#include "common/time_manager.hpp"
 #include "double_buffer.hpp"
 
 // standard headers
@@ -37,7 +38,7 @@
  * Returns server's local system time.
  * Clients are using the server time to play audio in sync, independent of the client's system time
  */
-class TimeProvider
+class TimeProvider : public snapcast::TimeManager
 {
 public:
     static TimeProvider& getInstance()
@@ -63,12 +64,6 @@ public:
     
     /// Get current time sync information
     time_sync::TimeSyncInfo getSyncInfo() const;
-    
-    /// Get protocol version to use with server
-    time_sync::ProtocolVersion getProtocolVersion() const;
-    
-    /// Set protocol version based on server capabilities
-    void setProtocolVersion(time_sync::ProtocolVersion version);
 
     template <typename T>
     inline T getDiffToServer() const
@@ -102,28 +97,9 @@ private:
     TimeProvider(TimeProvider const&);   // Don't Implement
     void operator=(TimeProvider const&); // Don't implement
 
-    // Detect available time sources on the system
-    void detectAvailableTimeSources();
-    
-    // Select the best available time source
-    void selectBestTimeSource();
-    
-    // Get current time using the selected time source
-    chronos::time_point_clk getCurrentTime();
-
+    // Client-specific members
     DoubleBuffer<chronos::usec::rep> diffBuffer_;
-    std::atomic<chronos::usec::rep> diffToServer_;
-    
-    // Thread safety
-    mutable std::mutex mutex_;
-    
-    // Protocol version
-    std::atomic<time_sync::ProtocolVersion> protocol_version_;
-    
-    // Time source management
-    time_sync::TimeSyncSource preferred_source_;
-    time_sync::TimeSyncSource current_source_;
-    std::map<time_sync::TimeSyncSource, time_sync::TimeSyncInfo> time_sources_;
+    std::atomic<chronos::usec::rep> diffToServer_{0};
     
     // Configuration
     ClientSettings::TimeSync settings_;

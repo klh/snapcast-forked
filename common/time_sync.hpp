@@ -26,6 +26,7 @@
 
 // local headers
 #include "time_defs.hpp"
+#include "message/message.hpp"
 
 namespace time_sync {
 
@@ -212,5 +213,24 @@ TimeValue getTime(
         TimeSyncSource::MONOTONIC,
         TimeSyncSource::SYSTEM
     });
+
+/**
+ * Populate a time message with standardized information
+ * @param timeMsg Pointer to the time message to populate
+ * @param source Time source to use (NONE for auto-selection)
+ * @param version Protocol version to use
+ */
+void populateTimeMessage(msg::Time* timeMsg, 
+                         TimeSyncSource source = TimeSyncSource::NONE,
+                         ProtocolVersion version = ProtocolVersion::V2);
+
+/**
+ * Process a time response message and create a TimeStatus object
+ * @param response Pointer to the time response message
+ * @param diff_ms Time difference to server in milliseconds
+ * @return TimeStatus object with processed information
+ * @throws std::invalid_argument if response is null
+ */
+TimeStatus processTimeResponse(const msg::Time* response, double diff_ms = 0);
 
 } // namespace time_sync

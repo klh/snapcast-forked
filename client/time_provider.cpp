@@ -27,19 +27,10 @@
 
 static constexpr auto LOG_TAG = "TimeProvider";
 
-TimeProvider::TimeProvider() : 
-    diffToServer_(0),
-    protocol_version_(time_sync::ProtocolVersion::V1),
-    preferred_source_(time_sync::TimeSyncSource::NONE),
-    current_source_(time_sync::TimeSyncSource::MONOTONIC)
+TimeProvider::TimeProvider() : snapcast::TimeManager()
 {
     diffBuffer_.setSize(200);
-    
-    // Initialize time sources
-    detectAvailableTimeSources();
-    
-    // Select the best available time source
-    selectBestTimeSource();
+    diffToServer_ = 0;
 }
 
 void TimeProvider::setDiff(const tv& c2s, const tv& s2c)
@@ -103,137 +94,77 @@ void TimeProvider::setDiffToServer(double ms)
 
 time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (time_sources_.find(current_source_) != time_sources_.end()) {
-        return time_sources_.at(current_source_);
-    }
-    
-    // Return default info if current source not found
-    time_sync::TimeSyncInfo info;
-    info.source = current_source_;
-    return info;
+    return getCurrentSourceInfo();
 }
 
-time_sync::ProtocolVersion TimeProvider::getProtocolVersion() const
-{
-    return protocol_version_;
-}
-
-void TimeProvider::setProtocolVersion(time_sync::ProtocolVersion version)
-{
-    protocol_version_ = version;
-    LOG(INFO, LOG_TAG) << "Set time sync protocol version to: " << static_cast<int>(version) << "\n";
-}
+// These methods are now provided by the TimeManager base class
 
 void TimeProvider::setPreferredSyncSource(time_sync::TimeSyncSource source)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    preferred_source_ = source;
     LOG(INFO, LOG_TAG) << "Set preferred time source to: " << time_sync::timeSourceToString(source) << "\n";
     
-    // Re-select the best time source based on the new preference
-    selectBestTimeSource();
-}
-
-void TimeProvider::selectBestTimeSource()
-{
-    // Note: This method is called from other methods that already hold the mutex
-    // No need to lock again here
-    
-    // If we have a preferred source and it's available, use it
-    if (preferred_source_ != time_sync::TimeSyncSource::NONE && 
-        time_sources_.find(preferred_source_) != time_sources_.end() && 
-        time_sources_[preferred_source_].available) {
-        current_source_ = preferred_source_;
-        LOG(INFO, LOG_TAG) << "Using preferred time source: " 
-                          << time_sync::timeSourceToString(current_source_) << "\n";
-        return;
-    }
-    
-    // Use the time_sync utility function to select the best source
-    current_source_ = time_sync::selectBestTimeSource(time_sources_, preferred_source_, settings_.min_quality);
-    
-    LOG(INFO, LOG_TAG) << "Selected time source: " << time_sync::timeSourceToString(current_source_) 
-                       << ", quality: " << time_sources_[current_source_].quality << "\n";
+    // Use the base class method to select the best time source with the new preference
+    selectBestTimeSource(source);
 }
 
 void TimeProvider::configure(const ClientSettings::TimeSync& settings)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
     LOG(INFO, LOG_TAG) << "Configuring time provider with client settings\n";
     
     // Store settings
     settings_ = settings;
     
     // Set preferred time source from settings
+    time_sync::TimeSyncSource preferred = time_sync::TimeSyncSource::NONE;
     if (settings.preferred_source >= 0 && settings.preferred_source < 5) {
-        preferred_source_ = time_sync::intToTimeSource(settings.preferred_source);
+        preferred = time_sync::intToTimeSource(settings.preferred_source);
         LOG(INFO, LOG_TAG) << "Set preferred time source to: " 
-                          << time_sync::timeSourceToString(preferred_source_) << "\n";
+                          << time_sync::timeSourceToString(preferred) << "\n";
     } else {
         // Auto mode - no specific preference
-        preferred_source_ = time_sync::TimeSyncSource::NONE;
+        LOG(INFO, LOG_TAG) << "Auto mode: No specific time source preference\n";
     }
     
-    // Apply time sync mode
+    // Apply time sync mode based on settings
     switch (settings.mode) {
         case time_sync::SyncMode::fixed:
-            // In fixed mode, only use the preferred source
-            if (preferred_source_ != time_sync::TimeSyncSource::NONE) {
-                // Force the source to be available
-                if (time_sources_.find(preferred_source_) == time_sources_.end()) {
-                    time_sources_[preferred_source_] = time_sync::TimeSyncInfo();
-                }
-                time_sources_[preferred_source_].available = true;
-                
-                // Make other sources unavailable
-                for (auto& source : time_sources_) {
-                    if (source.first != preferred_source_) {
-                        source.second.available = false;
-                    }
-                }
-                
+            // In fixed mode, only use the preferred source if specified
+            if (preferred != time_sync::TimeSyncSource::NONE) {
                 LOG(INFO, LOG_TAG) << "Fixed mode: Using only time source " 
-                                   << time_sync::timeSourceToString(preferred_source_) << "\n";
+                                   << time_sync::timeSourceToString(preferred) << "\n";
+                
+                // Force selection of the preferred source
+                detectAvailableTimeSources();
+                selectBestTimeSource(preferred);
+            } else {
+                LOG(WARNING, LOG_TAG) << "Fixed mode specified but no preferred source set, falling back to auto mode\n";
+                detectAvailableTimeSources();
+                selectBestTimeSource();
             }
             break;
             
         case time_sync::SyncMode::server_guided:
             // Server will guide source selection, we'll respect its choice
             LOG(INFO, LOG_TAG) << "Server-guided mode: Server will select time source\n";
+            // Just detect available sources, actual selection will happen during negotiation
+            detectAvailableTimeSources();
             break;
             
         case time_sync::SyncMode::disabled:
             // Disable time synchronization, use only monotonic clock
-            for (auto& source : time_sources_) {
-                if (source.first != time_sync::TimeSyncSource::MONOTONIC) {
-                    source.second.available = false;
-                }
-            }
-            
-            // Ensure monotonic source is available
-            if (time_sources_.find(time_sync::TimeSyncSource::MONOTONIC) == time_sources_.end()) {
-                time_sources_[time_sync::TimeSyncSource::MONOTONIC] = time_sync::TimeSyncInfo();
-            }
-            time_sources_[time_sync::TimeSyncSource::MONOTONIC].available = true;
-            preferred_source_ = time_sync::TimeSyncSource::MONOTONIC;
-            
             LOG(INFO, LOG_TAG) << "Time sync disabled: Using only monotonic clock\n";
+            // Force monotonic clock selection
+            selectBestTimeSource(time_sync::TimeSyncSource::MONOTONIC);
             break;
             
         case time_sync::SyncMode::auto_select:
         default:
             // Auto-select the best available source
-            detectAvailableTimeSources();
             LOG(INFO, LOG_TAG) << "Auto mode: Detecting available time sources\n";
+            detectAvailableTimeSources();
+            selectBestTimeSource();
             break;
     }
-    
-    // Re-select the best time source based on the new settings
-    selectBestTimeSource();
 }
 
 void TimeProvider::negotiateSyncSource(const time_sync::TimeSyncInfo& server_info)
