@@ -81,7 +81,7 @@ public:
      * Get the current server status
      * @return A string containing server status information
      */
-    std::string getStatus() const;
+    std::string getStatus() const override;
     
     /**
      * Get the list of connected clients

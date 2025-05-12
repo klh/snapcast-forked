@@ -76,8 +76,13 @@ public:
     // Methods inherited from ChronyBase:
     // - isChronyInstalled()
     // - isSynchronized()
-    // - getStatus()
     // - getTrackingInfo()
+    
+    /**
+     * Get the current status of the chrony client
+     * @return Status string with connection information
+     */
+    std::string getStatus() const override;
     
     /**
      * Get the server address we're connected to
