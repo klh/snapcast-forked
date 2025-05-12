@@ -37,15 +37,28 @@ TimeProvider::TimeProvider()
 time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
 {
     time_sync::TimeSyncInfo info;
-    info.version = protocol_version_;
     
-    // Set available time sources
-    if (chrony_available_)
-        info.sources.push_back(time_sync::TimeSyncSource::CHRONY);
-    else if (local_server_)
-        info.sources.push_back(time_sync::TimeSyncSource::MONOTONIC);
+    // Set source and availability based on configuration
+    if (chrony_available_) {
+        info.source = time_sync::TimeSyncSource::CHRONY;
+        info.available = true;
+        info.quality = 0.9f; // High quality for chrony
+        info.estimated_error_ms = 0.5f; // Very low error for chrony
+    } else if (local_server_) {
+        info.source = time_sync::TimeSyncSource::MONOTONIC;
+        info.available = true;
+        info.quality = 0.8f; // Good quality for local server
+        info.estimated_error_ms = 1.0f; // Low error for local server
+    } else {
+        info.source = time_sync::TimeSyncSource::SYSTEM;
+        info.available = true;
+        info.quality = 0.5f; // Medium quality for system time
+        info.estimated_error_ms = 10.0f; // Higher error for system time
+    }
     
-    info.sources.push_back(time_sync::TimeSyncSource::SYSTEM);
+    // Set last update timestamp
+    info.last_update = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     
     return info;
 }
