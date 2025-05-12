@@ -74,6 +74,7 @@ bool ChronyMaster::init(const std::string& config_dir, uint16_t port) {
         LOG(ERROR, LOG_TAG) << "Failed to initialize chrony master: " << e.what() << "\n";
         return false;
     }
+}
 
 bool ChronyMaster::start()
 {
@@ -110,6 +111,9 @@ bool ChronyMaster::start()
         if (status.empty()) {
             throw std::runtime_error("Chronyd started but is not responding. Time synchronization cannot function.");
         }
+    } catch (const std::exception& e) {
+        LOG(ERROR, LOG_TAG) << "Error starting chronyd: " << e.what() << "\n";
+        return false;
     }
     
     // Configure as master using chronyc commands

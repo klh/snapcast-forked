@@ -361,6 +361,8 @@ bool ChronyClient::startClient() {
             chrony_pid_ = std::stoi(result);
             LOG(INFO, LOG_TAG) << "Started chronyd with PID " << chrony_pid_ << "\n";
         } catch (const std::exception& e) {
+            LOG(ERROR, LOG_TAG) << "Failed to parse chronyd PID: " << e.what() << "\n";
+        }
         // Wait for chronyd to start
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
