@@ -50,15 +50,15 @@ public:
      * Initialize the chrony master server
      * @param config_dir Directory to store configuration files
      * @param port Port to use for chrony server (default: 323)
-     * @throws std::runtime_error if chrony is not available or initialization fails
+     * @return true if initialization was successful, false otherwise
      */
-    void init(const std::string& config_dir, uint16_t port = 323);
+    bool init(const std::string& config_dir, uint16_t port = 323);
     
     /**
      * Start the chrony master server
-     * @throws std::runtime_error if server fails to start
+     * @return true if server started successfully, false otherwise
      */
-    void start();
+    bool start();
     
     /**
      * Stop the chrony master server
@@ -67,9 +67,9 @@ public:
     
     /**
      * Check if the chrony master server is running
-     * @throws std::runtime_error if server is not running
+     * @return true if the server is running, false otherwise
      */
-    void isRunning() const;
+    bool isRunning() const;
     
     // Methods inherited from ChronyBase:
     // - verifyChronoInstalled()

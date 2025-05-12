@@ -48,17 +48,17 @@ public:
     /**
      * Initialize the chrony client
      * @param config_dir Directory to store configuration files
-     * @throws std::runtime_error if chrony is not installed or initialization fails
+     * @return true if initialization was successful, false otherwise
      */
-    void init(const std::string& config_dir);
+    bool init(const std::string& config_dir);
     
     /**
      * Connect to the Snapcast server's chrony master
      * @param server_address Server hostname or IP address
      * @param port Server port (default: 323)
-     * @throws std::runtime_error if connection fails
+     * @return true if connection was successful, false otherwise
      */
-    void connectToServer(const std::string& server_address, uint16_t port = 323);
+    bool connectToServer(const std::string& server_address, uint16_t port = 323);
     
     /**
      * Disconnect client from the server

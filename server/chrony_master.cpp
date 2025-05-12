@@ -41,56 +41,65 @@ ChronyMaster::~ChronyMaster() {
     stop();
 }
 
-void ChronyMaster::init(const std::string& config_dir, uint16_t port) {
+bool ChronyMaster::init(const std::string& config_dir, uint16_t port) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (running_) {
-        throw std::runtime_error("Cannot initialize chrony master while it is already running");
+        LOG(ERROR, LOG_TAG) << "Cannot initialize chrony master while it is already running\n";
+        return false;
     }
     
-    // Verify chrony is installed - this is a hard requirement
-    verifyChronoInstalled();
-    
-    // Store configuration parameters
-    port_ = port;
-    
-    // Get server address (hostname or IP)
-    server_address_ = execCommand("hostname -f 2>/dev/null");
-    if (server_address_.empty()) {
-        server_address_ = execCommand("hostname 2>/dev/null");
+    try {
+        // Verify chrony is installed - this is a hard requirement
+        verifyChronoInstalled();
+        
+        // Store configuration parameters
+        port_ = port;
+        
+        // Get server address (hostname or IP)
+        server_address_ = execCommand("hostname -f 2>/dev/null");
+        if (server_address_.empty()) {
+            server_address_ = execCommand("hostname 2>/dev/null");
+        }
+        if (server_address_.empty()) {
+            server_address_ = "127.0.0.1";
+        }
+        // Trim newlines
+        server_address_.erase(server_address_.find_last_not_of("\n\r") + 1);
+        
+        LOG(NOTICE, LOG_TAG) << "Chrony present, setting up " << server_address_ << " as chrony MASTER\n";
+        LOG(INFO, LOG_TAG) << "Initialized chrony master with server address: " << server_address_ << ":" << port_ << "\n";
+        return true;
+    } catch (const std::exception& e) {
+        LOG(ERROR, LOG_TAG) << "Failed to initialize chrony master: " << e.what() << "\n";
+        return false;
     }
-    if (server_address_.empty()) {
-        server_address_ = "127.0.0.1";
-    }
-    // Trim newlines
-    server_address_.erase(server_address_.find_last_not_of("\n\r") + 1);
-    
-    LOG(NOTICE, LOG_TAG) << "Chrony present, setting up " << server_address_ << " as chrony MASTER\n";
-    LOG(INFO, LOG_TAG) << "Initialized chrony master with server address: " << server_address_ << ":" << port_ << "\n";
-}
 
-void ChronyMaster::start()
+bool ChronyMaster::start()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (running_) {
         LOG(INFO, LOG_TAG) << "Chrony master already running\n";
-        return;
+        return true;
     }
     
-    // Check if chronyd is already running
-    std::string status = execCommand("chronyc -c tracking 2>/dev/null");
-    if (!status.empty()) {
-        LOG(INFO, LOG_TAG) << "Chronyd already running, configuring as master\n";
-    } else {
-        // Start chronyd if not running
-        std::string cmd = "chronyd";
-        LOG(INFO, LOG_TAG) << "Starting chronyd: " << cmd << "\n";
-        
-        // Start chronyd as a background process
-        std::string result = execCommand(cmd + " & echo $!");
-        if (result.empty()) {
-            throw std::runtime_error("Failed to start chronyd. Time synchronization cannot function.");
+    try {
+        // Check if chronyd is already running
+        std::string status = execCommand("chronyc -c tracking 2>/dev/null");
+        if (!status.empty()) {
+            LOG(INFO, LOG_TAG) << "Chronyd already running, configuring as master\n";
+        } else {
+            // Start chronyd if not running
+            std::string cmd = "chronyd";
+            LOG(INFO, LOG_TAG) << "Starting chronyd: " << cmd << "\n";
+            
+            // Start chronyd as a background process
+            std::string result = execCommand(cmd + " & echo $!");
+            if (result.empty()) {
+                LOG(ERROR, LOG_TAG) << "Failed to start chronyd. Time synchronization cannot function.\n";
+                return false;
+            }
         }
         
         // Wait for chronyd to start
