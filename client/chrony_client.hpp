@@ -56,10 +56,7 @@ public:
      */
     bool connectToServer(const std::string& server_address, uint16_t port = 323);
     
-    /**
-     * Disconnect from the Snapcast server's chrony master
-     */
-    void disconnect();
+    // No disconnect method - chrony configuration persists until system restart
     
     /**
      * Check if connected to the Snapcast server's chrony master
@@ -98,8 +95,8 @@ private:
     ChronyClient(const ChronyClient&) = delete;
     ChronyClient& operator=(const ChronyClient&) = delete;
     
-    // Generate chrony client configuration file
-    bool generateConfig(const std::string& server_address, uint16_t port);
+    // Configure chrony client using chronyc -a commands
+    bool configureClient(const std::string& server_address, uint16_t port);
     
     // Check if chrony is installed
     bool isChronyInstalled() const;
@@ -110,8 +107,7 @@ private:
     // Stop chrony client
     void stopClient();
     
-    // Monitor thread function
-    void monitorThread();
+    // No monitoring thread - assume chrony works if configured properly
     
     std::string config_dir_;
     std::string config_file_;
@@ -120,9 +116,6 @@ private:
     uint16_t port_{323};
     
     std::atomic<bool> connected_{false};
-    std::atomic<bool> stop_requested_{false};
-    
-    std::unique_ptr<std::thread> monitor_thread_;
     mutable std::mutex mutex_;
     
     // Process ID of the chrony client

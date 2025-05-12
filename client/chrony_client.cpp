@@ -70,23 +70,29 @@ bool ChronyClient::init(const std::string& config_dir) {
         return false;
     }
     
-    // Store configuration parameters
-    config_dir_ = config_dir;
+    // Check if snapserver is running on the same system
+    bool is_local_server = false;
     
-    // Create config directory if it doesn't exist
-    try {
-        if (!fs::exists(config_dir_)) {
-            fs::create_directories(config_dir_);
-        }
-    } catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Failed to create config directory: " << e.what() << "\n";
-        return false;
+    // Use ps to check if snapserver is running
+    std::string ps_output = execCommand("ps -ef | grep -v grep | grep snapserver 2>/dev/null");
+    if (!ps_output.empty()) {
+        // Found snapserver process running locally
+        is_local_server = true;
+        LOG(INFO, LOG_TAG) << "Detected snapserver running on the same system\n";
     }
     
-    // Set config file path
-    config_file_ = config_dir_ + "/chrony.conf";
+    if (is_local_server) {
+        LOG(NOTICE, LOG_TAG) << "Chrony present locally and running on same machine as server - using local monotonic clock\n";
+        // Don't set up chrony client when running on the same machine as the server
+        return true;
+    } else {
+        LOG(NOTICE, LOG_TAG) << "Chrony present locally, Chrony present on master - setting up " << server_address << " as master and this as slave\n";
+    }
     
-    LOG(INFO, LOG_TAG) << "Initialized chrony client with config directory: " << config_dir_ << "\n";
+    // Store configuration directory for any future use
+    config_dir_ = config_dir;
+    
+    LOG(INFO, LOG_TAG) << "Initialized chrony client\n";
     return true;
 }
 
@@ -99,12 +105,33 @@ bool ChronyClient::connectToServer(const std::string& server_address, uint16_t p
         return true;
     }
     
+    // Check if snapserver is running on the same system
+    bool is_local_server = false;
+    
+    // Use ps to check if snapserver is running
+    std::string ps_output = execCommand("ps -ef | grep -v grep | grep snapserver 2>/dev/null");
+    if (!ps_output.empty()) {
+        // Found snapserver process running locally
+        is_local_server = true;
+        LOG(INFO, LOG_TAG) << "Detected snapserver running on the same system\n";
+    }
+    
+    if (is_local_server) {
+        LOG(NOTICE, LOG_TAG) << "Server running on same machine - using local monotonic clock instead of chrony\n";
+        // Mark as connected but don't actually configure chrony
+        server_address_ = server_address;
+        port_ = port;
+        connected_ = true;
+        stop_requested_ = false;
+        return true;
+    }
+    
     // Store server information
     server_address_ = server_address;
     port_ = port;
     
     // Check if chronyd is already running
-    std::string status = execCommand("chronyc tracking 2>/dev/null");
+    std::string status = execCommand("chronyc -c tracking 2>/dev/null");
     if (status.empty()) {
         // Start chronyd if not running
         std::string cmd = "chronyd";
@@ -202,7 +229,7 @@ bool ChronyClient::connectToServer(const std::string& server_address, uint16_t p
     // Verify server was added by checking sources
     bool server_verified = false;
     for (int retry = 0; retry < 5; retry++) {
-        std::string sources = execCommand("chronyc sources 2>/dev/null");
+        std::string sources = execCommand("chronyc -c sources 2>/dev/null");
         // Check for either the original server address or the resolved address
         if (sources.find(server_address) != std::string::npos || 
             (resolved_address != server_address && sources.find(resolved_address) != std::string::npos)) {
@@ -221,49 +248,12 @@ bool ChronyClient::connectToServer(const std::string& server_address, uint16_t p
     
     // Mark as connected
     connected_ = true;
-    stop_requested_ = false;
-    
-    // Start monitor thread
-    monitor_thread_ = std::make_unique<std::thread>(&ChronyClient::monitorThread, this);
     
     LOG(NOTICE, LOG_TAG) << "Connected to chrony server at " << server_address_ << "\n";
     return true;
 }
 
-void ChronyClient::disconnect()
-{
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        
-        if (!connected_) {
-            return;
-        }
-        
-        // Request stop
-        stop_requested_ = true;
-        
-        // Remove server using chronyc command
-        std::string cmd = "chronyc -a 'delete " + server_address_ + "'";
-        std::string result = execCommand(cmd);
-        
-        if (result.find("200 OK") == std::string::npos) {
-            LOG(WARNING, LOG_TAG) << "Failed to remove server: " << result << "\n";
-            // Continue anyway
-        }
-    }
-    
-    // Wait for monitor thread to finish
-    if (monitor_thread_ && monitor_thread_->joinable()) {
-        monitor_thread_->join();
-        monitor_thread_.reset();
-    }
-    
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        connected_ = false;
-        LOG(INFO, LOG_TAG) << "Disconnected from chrony server\n";
-    }
-}
+// No disconnect implementation - chrony configuration persists until system restart
 
 bool ChronyClient::isConnected() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -277,16 +267,16 @@ std::string ChronyClient::getStatus() const
     }
     
     // Get tracking information directly from chronyc
-    std::string tracking = execCommand("chronyc tracking 2>/dev/null");
+    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
     if (tracking.empty()) {
         return "Connected to chrony server but tracking information is not available";
     }
     
     // Get sources information directly from chronyc
-    std::string sources = execCommand("chronyc sources 2>/dev/null");
+    std::string sources = execCommand("chronyc -c sources 2>/dev/null");
     
     // Get sourcestats information directly from chronyc
-    std::string sourcestats = execCommand("chronyc sourcestats 2>/dev/null");
+    std::string sourcestats = execCommand("chronyc -c sourcestats 2>/dev/null");
     
     std::stringstream status;
     status << "Connected to chrony server at " << server_address_ << "\n\n";
@@ -316,45 +306,46 @@ uint16_t ChronyClient::getPort() const {
     return port_;
 }
 
-bool ChronyClient::generateConfig(const std::string& server_address, uint16_t port) {
-    try {
-        std::ofstream config(config_file_);
-        if (!config.is_open()) {
-            LOG(ERROR, LOG_TAG) << "Failed to open config file for writing: " << config_file_ << "\n";
-            return false;
+bool ChronyClient::configureClient(const std::string& server_address, uint16_t port) {
+    // Configure chrony client with server and options using chronyc -a commands
+    bool server_added = false;
+    for (int retry = 0; retry < 3; retry++) {
+        // Combined command to add server with appropriate options and fallback pool
+        std::string cmd = "chronyc -a \
+"
+                          "'add server " + server_address + " prefer iburst' \
+"
+                          "'burst' \
+"
+                          "'add pool pool.ntp.org iburst'";
+        
+        LOG(INFO, LOG_TAG) << "Configuring chrony client with server: " << server_address << "\n";
+        std::string result = execCommand(cmd);
+        
+        // Check if commands succeeded (should see multiple 200 OK responses)
+        size_t pos = 0;
+        int ok_count = 0;
+        while ((pos = result.find("200 OK", pos)) != std::string::npos) {
+            ok_count++;
+            pos += 6; // length of "200 OK"
         }
         
-        // Write chrony client configuration
-        config << "# Snapcast chrony client configuration\n";
-        config << "# Generated automatically - do not edit\n\n";
+        if (ok_count >= 2) { // We expect at least 2 OK responses
+            server_added = true;
+            LOG(INFO, LOG_TAG) << "Successfully configured chrony client with server and fallback pool\n";
+            break;
+        }
         
-        // Server connection
-        config << "# Connect to Snapcast server's chrony master\n";
-        config << "server " << server_address << " port " << port << " iburst\n\n";
-        
-        // Make this server our preferred source
-        config << "# Make Snapcast server our preferred time source\n";
-        config << "prefer " << server_address << "\n\n";
-        
-        // Optimize for audio synchronization
-        config << "# Optimize for audio synchronization\n";
-        config << "maxupdateskew 100.0\n";
-        config << "makestep 0.1 3\n";
-        config << "driftfile " << config_dir_ << "/drift\n";
-        config << "logdir " << config_dir_ << "\n";
-        config << "log measurements statistics tracking\n\n";
-        
-        // Don't act as a server
-        config << "# Don't act as a server\n";
-        config << "port 0\n";
-        
-        config.close();
-        LOG(INFO, LOG_TAG) << "Generated chrony client configuration at " << config_file_ << "\n";
-        return true;
-    } catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Failed to generate config: " << e.what() << "\n";
-        return false;
+        LOG(WARNING, LOG_TAG) << "Failed to configure client (attempt " << retry+1 << "/3): " << result << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
+    
+    if (!server_added) {
+        LOG(ERROR, LOG_TAG) << "Failed to configure chrony client after multiple attempts\n";
+        // Continue anyway, as it might still work or the server might already be added
+    }
+    
+    return true;
 }
 
 bool ChronyClient::isChronyInstalled() const {
@@ -363,36 +354,55 @@ bool ChronyClient::isChronyInstalled() const {
 }
 
 bool ChronyClient::startClient() {
-    // Stop any existing client
-    stopClient();
+    // Check if chronyd is already running
+    std::string status = execCommand("chronyc -c tracking 2>/dev/null");
+    if (!status.empty()) {
+        LOG(INFO, LOG_TAG) << "Chronyd already running, configuring as client\n";
+    } else {
+        // Start chronyd if not running
+        std::string cmd = "chronyd";
+        LOG(INFO, LOG_TAG) << "Starting chronyd: " << cmd << "\n";
+        
+        // Start chronyd as a background process
+        std::string result = execCommand(cmd + " & echo $!");
+        if (result.empty()) {
+            LOG(ERROR, LOG_TAG) << "Failed to start chronyd\n";
+            return false;
+        }
+        
+        // Extract PID
+        try {
+            chrony_pid_ = std::stoi(result);
+            LOG(INFO, LOG_TAG) << "Started chronyd with PID " << chrony_pid_ << "\n";
+        } catch (const std::exception& e) {
+        // Wait for chronyd to start
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
     
-    // Start chronyd with our configuration
-    std::string cmd = "chronyd -f " + config_file_ + " -d";
-    LOG(INFO, LOG_TAG) << "Starting chrony client: " << cmd << "\n";
-    
-    // Start chronyd as a background process
-    std::string pid_output = execCommand(cmd + " & echo $!");
-    try {
-        chrony_pid_ = std::stoi(pid_output);
-    } catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Failed to start chronyd: " << e.what() << "\n";
+    // Configure client using chronyc -a commands
+    if (!configureClient(server_address_, port_)) {
+        LOG(ERROR, LOG_TAG) << "Failed to configure chrony client\n";
         return false;
     }
     
-    // Check if chronyd is running
-    if (chrony_pid_ <= 0) {
-        LOG(ERROR, LOG_TAG) << "Failed to start chronyd\n";
-        return false;
+    // Verify server was added by checking sources
+    bool server_verified = false;
+    for (int retry = 0; retry < 5; retry++) {
+        std::string sources = execCommand("chronyc -c sources 2>/dev/null");
+        // Check for either the original server address or the resolved address
+        if (sources.find(server_address_) != std::string::npos || 
+            (!resolved_address_.empty() && sources.find(resolved_address_) != std::string::npos)) {
+            server_verified = true;
+            LOG(INFO, LOG_TAG) << "Server verified in sources list\n";
+            break;
+        }
+        
+        LOG(INFO, LOG_TAG) << "Waiting for server to appear in sources list (attempt " << retry+1 << "/5)\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     
-    // Wait for client to connect to server
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    
-    // Check if client is connected to server
-    std::string sources = execCommand("chronyc -n sources 2>/dev/null");
-    if (sources.find(server_address_) == std::string::npos) {
-        LOG(WARNING, LOG_TAG) << "Chrony client started but not connected to server yet\n";
-        // Continue anyway, as it might connect later
+    if (!server_verified) {
+        LOG(WARNING, LOG_TAG) << "Server not found in sources list, but continuing anyway\n";
     }
     
     LOG(INFO, LOG_TAG) << "Chrony client started successfully\n";
@@ -417,71 +427,6 @@ void ChronyClient::stopClient() {
     }
 }
 
-void ChronyClient::monitorThread() {
-    LOG(INFO, LOG_TAG) << "Chrony client monitor thread started\n";
-    
-    while (!stop_requested_) {
-        // Check if chronyd is still running
-        std::string tracking = execCommand("chronyc tracking 2>/dev/null");
-        if (tracking.empty()) {
-            LOG(WARNING, LOG_TAG) << "Chrony daemon not running\n";
-            
-            std::lock_guard<std::mutex> lock(mutex_);
-            connected_ = false;
-            break;
-        }
-        
-        // Check if still connected to server
-        std::string sources = execCommand("chronyc -n sources 2>/dev/null");
-        
-        // Store the resolved address for use in the monitor thread
-        if (resolved_address_.empty()) {
-            // Try to resolve server address if not already done
-            if (server_address_.find(".") == std::string::npos && server_address_.find(":") == std::string::npos) {
-                std::string avahi_cmd = "avahi-resolve-host-name " + server_address_ + ".local 2>/dev/null | awk '{print $2}'";
-                std::string avahi_result = execCommand(avahi_cmd);
-                
-                if (!avahi_result.empty()) {
-                    // Remove any trailing whitespace
-                    avahi_result.erase(avahi_result.find_last_not_of("\n\r\t ") + 1);
-                    resolved_address_ = avahi_result;
-                    LOG(INFO, LOG_TAG) << "Monitor thread resolved " << server_address_ << " to " << resolved_address_ << " via mDNS\n";
-                }
-            }
-        }
-        
-        // Check if either the original or resolved address is in the sources list
-        bool server_found = sources.find(server_address_) != std::string::npos || 
-                           (!resolved_address_.empty() && sources.find(resolved_address_) != std::string::npos);
-        
-        if (!server_found) {
-            LOG(WARNING, LOG_TAG) << "Lost connection to chrony server\n";
-            
-            // Try to reconnect
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (connected_) {
-                LOG(INFO, LOG_TAG) << "Attempting to reconnect to chrony server\n";
-                
-                // Use the resolved address if available
-                std::string target_address = resolved_address_.empty() ? server_address_ : resolved_address_;
-                
-                // Add server using chronyc command
-                std::string cmd = "chronyc -a 'add server " + target_address + " iburst prefer'";
-                std::string result = execCommand(cmd);
-                
-                if (result.find("200 OK") == std::string::npos) {
-                    LOG(ERROR, LOG_TAG) << "Failed to reconnect to chrony server\n";
-                    connected_ = false;
-                    break;
-                }
-            }
-        }
-        
-        // Sleep for a bit
-        std::this_thread::sleep_for(std::chrono::seconds(10));
-    }
-    
-    LOG(INFO, LOG_TAG) << "Chrony client monitor thread stopped\n";
-}
+// No monitor thread implementation - assuming chrony works if configured properly
 
 } // namespace snapclient

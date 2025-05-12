@@ -73,21 +73,7 @@ bool ChronyMaster::init(const std::string& config_dir, uint16_t port) {
     LOG(NOTICE, LOG_TAG) << "Chrony present, setting up " << server_address_ << " as chrony MASTER\n";
     
     // Store configuration parameters
-    config_dir_ = config_dir;
     port_ = port;
-    
-    // Create config directory if it doesn't exist
-    try {
-        if (!fs::exists(config_dir_)) {
-            fs::create_directories(config_dir_);
-        }
-    } catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Failed to create config directory: " << e.what() << "\n";
-        return false;
-    }
-    
-    // Set config file path
-    config_file_ = config_dir_ + "/chrony.conf";
     
     // Get server address (hostname or IP)
     server_address_ = execCommand("hostname -f 2>/dev/null");
@@ -102,8 +88,8 @@ bool ChronyMaster::init(const std::string& config_dir, uint16_t port) {
     
     LOG(INFO, LOG_TAG) << "Initialized chrony master with server address: " << server_address_ << ":" << port_ << "\n";
     
-    // Generate configuration file
-    return generateConfig();
+    // No need to generate configuration file - using direct chronyc commands
+    return true;
 }
 
 bool ChronyMaster::start()
@@ -116,7 +102,7 @@ bool ChronyMaster::start()
     }
     
     // Check if chronyd is already running
-    std::string status = execCommand("chronyc tracking 2>/dev/null");
+    std::string status = execCommand("chronyc -c tracking 2>/dev/null");
     if (!status.empty()) {
         LOG(INFO, LOG_TAG) << "Chronyd already running, configuring as master\n";
     } else {
@@ -218,7 +204,7 @@ bool ChronyMaster::start()
     LOG(NOTICE, LOG_TAG) << "Note: For this configuration to work properly, chronyd must be run as root or the chrony user\n";
     
     // Verify configuration was applied
-    std::string tracking = execCommand("chronyc tracking 2>/dev/null");
+    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
     if (tracking.empty()) {
         LOG(ERROR, LOG_TAG) << "Failed to verify chrony configuration\n";
         return false;
@@ -226,10 +212,6 @@ bool ChronyMaster::start()
     
     // Mark as running
     running_ = true;
-    stop_requested_ = false;
-    
-    // Start monitor thread
-    monitor_thread_ = std::make_unique<std::thread>(&ChronyMaster::monitorThread, this);
     
     LOG(NOTICE, LOG_TAG) << "Chrony master configured successfully on " << server_address_ << "\n";
     LOG(INFO, LOG_TAG) << "Chrony tracking information:\n" << tracking;
@@ -237,45 +219,16 @@ bool ChronyMaster::start()
 }
 
 void ChronyMaster::stop() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        
-        if (!running_) {
-            return;
-        }
-        
-        // Request stop
-        stop_requested_ = true;
-        
-        // Stop chronyd
-        if (chrony_pid_ > 0) {
-            LOG(INFO, LOG_TAG) << "Stopping chrony master (PID: " << chrony_pid_ << ")\n";
-            kill(chrony_pid_, SIGTERM);
-            
-            // Wait briefly for clean shutdown
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            
-            // Check if still running
-            if (kill(chrony_pid_, 0) == 0) {
-                LOG(WARNING, LOG_TAG) << "Chrony master did not stop gracefully, forcing termination\n";
-                kill(chrony_pid_, SIGKILL);
-            }
-            
-            chrony_pid_ = -1;
-        }
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    if (!running_) {
+        return;
     }
     
-    // Wait for monitor thread to finish
-    if (monitor_thread_ && monitor_thread_->joinable()) {
-        monitor_thread_->join();
-        monitor_thread_.reset();
-    }
-    
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        running_ = false;
-        LOG(INFO, LOG_TAG) << "Chrony master stopped\n";
-    }
+    // We don't actually need to stop chronyd - it can continue running
+    // Just mark our service as stopped
+    running_ = false;
+    LOG(INFO, LOG_TAG) << "Chrony master stopped\n";
 }
 
 bool ChronyMaster::isRunning() const {
@@ -377,7 +330,7 @@ std::optional<time_sync::TimeSyncInfo> ChronyMaster::getTrackingInfo() {
     }
     
     // Get raw output from chronyc
-    std::string tracking = execCommand("chronyc tracking 2>/dev/null");
+    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
     if (tracking.empty()) {
         return std::nullopt;
     }
@@ -394,77 +347,13 @@ std::optional<time_sync::TimeSyncInfo> ChronyMaster::getTrackingInfo() {
     return info;
 }
 
-bool ChronyMaster::generateConfig() {
-    try {
-        std::ofstream config(config_file_);
-        if (!config.is_open()) {
-            LOG(ERROR, LOG_TAG) << "Failed to open config file for writing: " << config_file_ << "\n";
-            return false;
-        }
-        
-        // Write chrony configuration optimized for audio synchronization
-        config << "# Snapcast chrony master configuration\n";
-        config << "# Generated automatically - do not edit\n\n";
-        
-        // Use local clock as reference (stratum 1)
-        config << "# Use local clock as reference (stratum 1)\n";
-        config << "local stratum 1\n\n";
-        
-        // Allow all clients to connect
-        config << "# Allow all clients to connect\n";
-        config << "allow all\n\n";
-        
-        // Listen on specified port
-        config << "# Listen on port " << port_ << "\n";
-        config << "port " << port_ << "\n\n";
-        
-        // Optimize for audio synchronization
-        config << "# Optimize for audio synchronization\n";
-        config << "maxupdateskew 100.0\n";
-        config << "makestep 0.1 3\n";
-        config << "driftfile " << config_dir_ << "/drift\n";
-        config << "logdir " << config_dir_ << "\n";
-        config << "log measurements statistics tracking\n\n";
-        
-        // Server identification
-        config << "# Server identification\n";
-        config << "server_name \"Snapcast Audio Time Server\"\n";
-        
-        config.close();
-        LOG(INFO, LOG_TAG) << "Generated chrony configuration at " << config_file_ << "\n";
-        return true;
-    } catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Failed to generate config: " << e.what() << "\n";
-        return false;
-    }
-}
+// No configuration file generation - using direct chronyc commands
 
 bool ChronyMaster::isChronyInstalled() const {
     std::string result = execCommand("which chronyd 2>/dev/null");
     return !result.empty();
 }
 
-void ChronyMaster::monitorThread() {
-    LOG(INFO, LOG_TAG) << "Chrony master monitor thread started\n";
-    
-    while (!stop_requested_) {
-        // Check if chronyd is still running
-        if (chrony_pid_ > 0) {
-            if (kill(chrony_pid_, 0) != 0) {
-                LOG(WARNING, LOG_TAG) << "Chrony master process died unexpectedly\n";
-                
-                std::lock_guard<std::mutex> lock(mutex_);
-                running_ = false;
-                chrony_pid_ = -1;
-                break;
-            }
-        }
-        
-        // Sleep for a bit
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-    }
-    
-    LOG(INFO, LOG_TAG) << "Chrony master monitor thread stopped\n";
-}
+// No monitor thread implementation - assuming chrony works if configured properly
 
 } // namespace snapserver

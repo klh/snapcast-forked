@@ -114,14 +114,10 @@ private:
     ChronyMaster(const ChronyMaster&) = delete;
     ChronyMaster& operator=(const ChronyMaster&) = delete;
     
-    // Generate chrony configuration file
-    bool generateConfig();
-    
     // Check if chrony is installed
     bool isChronyInstalled() const;
     
-    // Monitor thread function
-    void monitorThread();
+    // No configuration file or monitor thread - using direct chronyc commands
     
     std::string config_dir_;
     std::string config_file_;
@@ -129,9 +125,6 @@ private:
     std::string server_address_;
     
     std::atomic<bool> running_{false};
-    std::atomic<bool> stop_requested_{false};
-    
-    std::unique_ptr<std::thread> monitor_thread_;
     mutable std::mutex mutex_;
     
     // Process ID of the chrony server
