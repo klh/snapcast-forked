@@ -133,6 +133,10 @@ struct ClientSettings
         
         /// Maximum time difference in milliseconds before forcing a resync
         int max_time_diff_ms{100};
+        
+        /// Explicitly set whether client is running on the same machine as server
+        /// This overrides automatic detection
+        bool on_server{false};
     };
 
     /// The snapclient process instance

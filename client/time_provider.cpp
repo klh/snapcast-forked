@@ -80,18 +80,49 @@ void TimeProvider::verifyChrony()
     // If so, we can use the local clock directly
     local_server_ = false;
     
-    // Check for snapserver process
-    FILE* fp = popen("pgrep -x snapserver", "r");
+    // If on_server flag is set, use that directly and skip detection
+    if (settings_.on_server) {
+        local_server_ = true;
+        LOG(INFO, LOG_TAG) << "Using local clock as specified by --on-server flag\n";
+        return; // Local server is fine, no need for chrony
+    }
+    
+    // Check for snapserver process using multiple methods
+    // Method 1: Check using pgrep with a more flexible pattern
+    FILE* fp = popen("pgrep snapserver", "r");
     if (fp != nullptr) {
         char buffer[10];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
             local_server_ = true;
-            LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine, using local clock\n";
+            LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (pgrep), using local clock\n";
             pclose(fp);
             return; // Local server is fine, no need for chrony
         }
         pclose(fp);
     }
+    
+    // Method 2: Check using ps
+    fp = popen("ps aux | grep -v grep | grep snapserver", "r");
+    if (fp != nullptr) {
+        char buffer[128];
+        if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
+            local_server_ = true;
+            LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (ps), using local clock\n";
+            pclose(fp);
+            return; // Local server is fine, no need for chrony
+        }
+        pclose(fp);
+    }
+    
+    // Method 3: Check if localhost is in the server host
+    if (settings_.server.host.find("localhost") != std::string::npos || 
+        settings_.server.host.find("127.0.0.1") != std::string::npos) {
+        local_server_ = true;
+        LOG(INFO, LOG_TAG) << "Server host is localhost, using local clock\n";
+        return; // Local server is fine, no need for chrony
+    }
+    
+    LOG(INFO, LOG_TAG) << "No local snapserver detected, will use chrony for time synchronization\n";
     
     // For remote server, chrony is required
     auto& chronyClient = snapclient::ChronyClient::getInstance();

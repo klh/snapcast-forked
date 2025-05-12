@@ -203,6 +203,7 @@ int main(int argc, char** argv)
         op.add<Value<int>>("", "timesync-interval", "Time synchronization interval in milliseconds", 1000, &settings.time_sync.sync_interval);
         op.add<Value<double>>("", "timesync-quality", "Minimum quality threshold (0.0-1.0) to accept a time source", 0.3, &settings.time_sync.min_quality);
         op.add<Switch>("", "allow-server-override", "Allow server to override client time source selection", &settings.time_sync.allow_server_override);
+        op.add<Switch>("", "on-server", "Explicitly set that client is running on the same machine as server (overrides auto-detection)", &settings.time_sync.on_server);
 
 // daemon settings
 #ifdef HAS_DAEMON

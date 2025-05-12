@@ -596,6 +596,21 @@ void Controller::initChronyClient(const std::string& server_address)
         return;
     }
     
+    // Skip chrony setup if client is explicitly set to be on the same machine as server
+    if (settings_.time_sync.on_server) {
+        LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as --on-server flag is set";
+        initialized = true;
+        return;
+    }
+    
+    // Check if server is localhost - another way to detect local server
+    if (server_address.find("localhost") != std::string::npos || 
+        server_address.find("127.0.0.1") != std::string::npos) {
+        LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as server is on localhost";
+        initialized = true;
+        return;
+    }
+    
     LOG(INFO, LOG_TAG) << "Initializing chrony client for time synchronization with server: " << server_address;
     
     // Create a temporary directory for chrony configuration
