@@ -19,7 +19,12 @@
 #include "time_sync.hpp"
 #include "aixlog.hpp"
 #include "time_defs.hpp"
-#include "chrony_tracker.hpp"
+
+// Chrony tracker functionality integrated directly
+#include <string>
+#include <map>
+#include <chrono>
+#include <optional>
 
 #include <algorithm>
 #include <array>
@@ -28,6 +33,84 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+
+static constexpr auto CHRONY_LOG_TAG = "ChronyTracker";
+
+// Helper function to safely execute a command and capture its output
+static std::string execCommand(const std::string& cmd) {
+    std::string result;
+    std::array<char, 128> buffer;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+
+    if (!pipe) {
+        LOG(WARNING, CHRONY_LOG_TAG) << "Failed to execute command: " << cmd << "\n";
+        return "";
+    }
+
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
+namespace snapcast {
+
+/**
+ * Simple container for chrony tracking information
+ */
+struct ChronyTrackingInfo {
+    // Raw output from chronyc
+    std::string raw_output;
+    
+    // Estimated quality (0.0-1.0)
+    double quality{0.8};
+    
+    // Estimated error in milliseconds
+    double estimated_error_ms{1.0};
+    
+    // Create from chronyc output
+    static ChronyTrackingInfo fromChronyc(bool csv_format = false) {
+        ChronyTrackingInfo info;
+        
+        // Get raw output from chronyc
+        std::string cmd = csv_format ? "chronyc -c tracking 2>/dev/null" : "chronyc tracking 2>/dev/null";
+        info.raw_output = execCommand(cmd);
+        
+        // Simple heuristic for quality and error estimation
+        if (!info.raw_output.empty()) {
+            // If we have output, assume decent quality
+            info.quality = 0.8;
+            info.estimated_error_ms = 1.0;
+        } else {
+            // No output means chrony isn't running or has issues
+            info.quality = 0.0;
+            info.estimated_error_ms = 1000.0;
+        }
+        
+        return info;
+    }
+    
+    // Get a formatted string representation
+    std::string toString() const {
+        if (raw_output.empty()) {
+            return "No chrony tracking information available";
+        }
+        return raw_output;
+    }
+};
+
+/**
+ * Simple utility for chrony tracking information
+ * Provides direct access to chronyc output
+ */
+class ChronyTracker {
+public:
+    // Get tracking information
+    static ChronyTrackingInfo getTrackingInfo(bool csv_format = false) {
+        return ChronyTrackingInfo::fromChronyc(csv_format);
+    }
+};
+
 
 static constexpr auto LOG_TAG = "TimeSync";
 
