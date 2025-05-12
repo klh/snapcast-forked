@@ -468,13 +468,13 @@ void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
                         << " (quality: " << status.active_source_info.quality 
                         << ", estimated error: " << status.active_source_info.estimated_error_ms << "ms)";
     
-    // Log current time information
+    // Log current time information with proper spacing
     LOG(INFO, log_tag) << "Current time source: " 
                       << timeSourceToString(status.current_time.source) 
                       << ", quality: " << status.current_time.quality 
                       << ", error: " << status.current_time.estimated_error_ms << "ms";
     
-    // Log protocol version if V2 or higher
+    // Log protocol version as a separate log entry
     if (status.protocol_version > ProtocolVersion::V1) {
         LOG(INFO, log_tag) << "Time sync protocol version: V" 
                           << static_cast<int>(status.protocol_version);
@@ -494,7 +494,7 @@ TimeStatus initAndLogTimeSync(const std::string& log_tag,
                               ProtocolVersion protocol_version,
                               TimeSyncSource preferred_source)
 {
-    // Get all available time sources
+    // Get all available time sources once to avoid race conditions
     auto time_sources = getAllTimeSourcesInfo();
     
     // Select the best time source
@@ -530,11 +530,18 @@ TimeStatus initAndLogTimeSync(const std::string& log_tag,
         sourceInfo = getDefaultQualityMetrics(selected_source);
     }
     
-    // Create time status with all information
-    TimeStatus status = getTimeStatus(diff_ms);
+    // Get current time from the selected source
+    TimeValue current_time = getTime(selected_source);
+    
+    // Create time status manually instead of calling getTimeStatus()
+    // to avoid race condition with a second call to getAllTimeSourcesInfo()
+    TimeStatus status;
+    status.available_sources = time_sources;
+    status.current_time = current_time;
     status.active_source = selected_source;
     status.active_source_info = sourceInfo;
     status.protocol_version = protocol_version;
+    status.diff_ms = diff_ms;
     
     // Log the time status
     logTimeStatus(status, log_tag);

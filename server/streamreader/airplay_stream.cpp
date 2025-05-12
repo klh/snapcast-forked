@@ -25,6 +25,10 @@
 #include "common/snap_exception.hpp"
 #include "common/utils/file_utils.hpp"
 
+// system headers
+#include <sys/types.h>
+#include <sys/stat.h>
+
 using namespace std;
 
 namespace streamreader
@@ -228,7 +232,26 @@ void AirplayStream::pipeReadLine()
     {
         try
         {
+            // Check if the pipe exists first
+            if (!utils::file::exists(pipePath_))
+            {
+                // Pipe doesn't exist yet, create it ourselves
+                LOG(INFO, LOG_TAG) << "Creating metadata pipe: " << pipePath_ << "\n";
+                
+                // Create the pipe using mkfifo
+                if (mkfifo(pipePath_.c_str(), 0666) != 0)
+                {
+                    throw std::runtime_error("Failed to create pipe: " + std::string(strerror(errno)));
+                }
+            }
+            
+            // Open the pipe with proper error checking
             int fd = open(pipePath_.c_str(), O_RDONLY | O_NONBLOCK);
+            if (fd < 0)
+            {
+                throw std::runtime_error("Failed to open pipe: " + std::string(strerror(errno)));
+            }
+            
             pipe_fd_ = std::make_unique<boost::asio::posix::stream_descriptor>(strand_, fd);
             LOG(INFO, LOG_TAG) << "Metadata pipe opened: " << pipePath_ << "\n";
         }
