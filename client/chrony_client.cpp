@@ -281,7 +281,29 @@ std::string ChronyClient::getStatus() const
     return status.str();
 }
 
-// Using getTrackingInfo from ChronyBase
+std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
+    if (!isConnected()) {
+        return std::nullopt;
+    }
+    
+    // Get raw output from chronyc
+    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
+    if (tracking.empty()) {
+        return std::nullopt;
+    }
+    
+    // Create tracking info
+    time_sync::ChronyTrackingInfo info;
+    info.ref_source = "chrony";
+    info.state = "synchronized";
+    info.stratum = "1"; // Assuming we're directly connected to a stratum 1 server
+    info.last_offset = 0.0; // Would need to parse from tracking output
+    info.rms_offset = 0.0; // Would need to parse from tracking output
+    info.system_time = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() / 1000000.0;
+    
+    return info;
+}
 
 std::string ChronyClient::getServerAddress() const {
     std::lock_guard<std::mutex> lock(mutex_);

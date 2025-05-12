@@ -76,7 +76,12 @@ public:
     // Methods inherited from ChronyBase:
     // - isChronyInstalled()
     // - isSynchronized()
-    // - getTrackingInfo()
+    
+    /**
+     * Get chrony tracking information
+     * @return Tracking information structure or empty if not available
+     */
+    std::optional<time_sync::ChronyTrackingInfo> getTrackingInfo() const override;
     
     /**
      * Get the current status of the chrony client

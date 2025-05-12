@@ -109,9 +109,9 @@ public:
     
     /**
      * Get detailed tracking information
-     * @return Chrony tracking information as TimeSyncInfo
+     * @return Chrony tracking information
      */
-    std::optional<time_sync::TimeSyncInfo> getTrackingInfo();
+    std::optional<time_sync::ChronyTrackingInfo> getTrackingInfo() const override;
     
 private:
     ChronyMaster() = default;

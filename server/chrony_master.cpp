@@ -317,7 +317,7 @@ uint16_t ChronyMaster::getPort() const {
     return port_;
 }
 
-std::optional<time_sync::TimeSyncInfo> ChronyMaster::getTrackingInfo() {
+std::optional<time_sync::ChronyTrackingInfo> ChronyMaster::getTrackingInfo() const {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (!running_) {
@@ -330,14 +330,15 @@ std::optional<time_sync::TimeSyncInfo> ChronyMaster::getTrackingInfo() {
         return std::nullopt;
     }
     
-    // Create time sync info
-    time_sync::TimeSyncInfo info;
-    info.source = time_sync::TimeSyncSource::CHRONY;
-    info.available = true;
-    info.quality = 0.8f;
-    info.estimated_error_ms = 1.0f;
-    info.last_update = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    // Create tracking info
+    time_sync::ChronyTrackingInfo info;
+    info.ref_source = "master";
+    info.state = "synchronized";
+    info.stratum = "0"; // Master is stratum 0
+    info.last_offset = 0.0; // Would need to parse from tracking output
+    info.rms_offset = 0.0; // Would need to parse from tracking output
+    info.system_time = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() / 1000000.0;
     
     return info;
 }

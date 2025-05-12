@@ -58,13 +58,13 @@ public:
      * Get chrony tracking information
      * @return Tracking information structure or empty if not available
      */
-    std::optional<time_sync::ChronyTrackingInfo> getTrackingInfo() const;
+    virtual std::optional<time_sync::ChronyTrackingInfo> getTrackingInfo() const;
     
     /**
      * Get current synchronization status as string
      * @return Status string
      */
-    std::string getStatus() const;
+    virtual std::string getStatus() const;
     
 protected:
     /**
