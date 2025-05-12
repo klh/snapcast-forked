@@ -596,6 +596,16 @@ void Controller::initChronyClient(const std::string& server_address)
         return;
     }
     
+    // Get current time sync info from TimeProvider
+    auto sync_info = TimeProvider::getInstance().getSyncInfo();
+    
+    // If TimeProvider is already using Monotonic time source, respect that decision
+    if (sync_info.source == time_sync::TimeSyncSource::MONOTONIC) {
+        LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as TimeProvider is using local clock";
+        initialized = true;
+        return;
+    }
+    
     // Skip chrony setup if client is explicitly set to be on the same machine as server
     if (settings_.time_sync.on_server) {
         LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as --on-server flag is set";
@@ -633,7 +643,9 @@ void Controller::initChronyClient(const std::string& server_address)
         initialized = true;
     } catch (const std::exception& e) {
         LOG(ERROR, LOG_TAG) << "Chrony initialization failed: " << e.what();
-        throw; // Re-throw to halt client if chrony setup fails
+        // Don't throw, just log the error and continue with system time
+        LOG(WARNING, LOG_TAG) << "Falling back to system time";
+        initialized = true;
     }
 }
 

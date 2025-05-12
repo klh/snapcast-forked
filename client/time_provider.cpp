@@ -39,21 +39,25 @@ time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
     time_sync::TimeSyncInfo info;
     
     // Set source and availability based on configuration
-    if (chrony_available_) {
+    if (local_server_) {
+        // Always prioritize local server detection
+        info.source = time_sync::TimeSyncSource::MONOTONIC;
+        info.available = true;
+        info.quality = 0.95f; // Highest quality for local server
+        info.estimated_error_ms = 0.1f; // Lowest error for local server
+        LOG(TRACE, LOG_TAG) << "Using MONOTONIC time source (local server)\n";
+    } else if (chrony_available_) {
         info.source = time_sync::TimeSyncSource::CHRONY;
         info.available = true;
         info.quality = 0.9f; // High quality for chrony
         info.estimated_error_ms = 0.5f; // Very low error for chrony
-    } else if (local_server_) {
-        info.source = time_sync::TimeSyncSource::MONOTONIC;
-        info.available = true;
-        info.quality = 0.8f; // Good quality for local server
-        info.estimated_error_ms = 1.0f; // Low error for local server
+        LOG(TRACE, LOG_TAG) << "Using CHRONY time source\n";
     } else {
         info.source = time_sync::TimeSyncSource::NONE;
         info.available = true;
         info.quality = 0.5f; // Medium quality for system time
         info.estimated_error_ms = 10.0f; // Higher error for system time
+        LOG(TRACE, LOG_TAG) << "Using NONE time source (fallback)\n";
     }
     
     // Set last update timestamp
@@ -83,6 +87,7 @@ void TimeProvider::verifyChrony()
     // If on_server flag is set, use that directly and skip detection
     if (settings_.on_server) {
         local_server_ = true;
+        chrony_available_ = false; // Explicitly disable chrony when on server
         LOG(INFO, LOG_TAG) << "Using local clock as specified by --on-server flag\n";
         return; // Local server is fine, no need for chrony
     }
@@ -94,6 +99,7 @@ void TimeProvider::verifyChrony()
         char buffer[10];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
             local_server_ = true;
+            chrony_available_ = false; // Explicitly disable chrony when server detected
             LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (pgrep), using local clock\n";
             pclose(fp);
             return; // Local server is fine, no need for chrony
@@ -107,6 +113,7 @@ void TimeProvider::verifyChrony()
         char buffer[128];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
             local_server_ = true;
+            chrony_available_ = false; // Explicitly disable chrony when server detected
             LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (ps), using local clock\n";
             pclose(fp);
             return; // Local server is fine, no need for chrony
@@ -149,11 +156,23 @@ void TimeProvider::checkSynchronization()
 
 chronos::time_point_clk TimeProvider::getCurrentTime()
 {
-    // Periodically check chrony synchronization status (every ~10 seconds)
+    // If we're on the same machine as the server, always use the local clock
+    if (local_server_) {
+        auto now = chronos::clk::now();
+        
+        // Log the current time at trace level
+        auto duration = now.time_since_epoch();
+        auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+        LOG(TRACE, LOG_TAG) << "getCurrentTime (local): " << microseconds / 1000000 << "." << microseconds % 1000000 << "\n";
+        
+        return now;
+    }
+    
+    // For remote servers, use chrony and periodically check synchronization
     static auto last_check = std::chrono::steady_clock::now();
     auto now_check = std::chrono::steady_clock::now();
     
-    if (std::chrono::duration_cast<std::chrono::seconds>(now_check - last_check).count() > 10) {
+    if (chrony_available_ && std::chrono::duration_cast<std::chrono::seconds>(now_check - last_check).count() > 10) {
         try {
             // Verify chrony is still synchronized
             checkSynchronization();
@@ -171,7 +190,7 @@ chronos::time_point_clk TimeProvider::getCurrentTime()
     // Log the current time at trace level
     auto duration = now.time_since_epoch();
     auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
-    LOG(TRACE, LOG_TAG) << "getCurrentTime: " << microseconds / 1000000 << "." << microseconds % 1000000 << "\n";
+    LOG(TRACE, LOG_TAG) << "getCurrentTime (chrony): " << microseconds / 1000000 << "." << microseconds % 1000000 << "\n";
     
     return now;
 }
