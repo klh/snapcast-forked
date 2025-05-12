@@ -35,27 +35,27 @@ Snapcast depends on boost 1.74 or higher. Since it depends on header only boost 
 
 ```sh
 sudo apt-get install build-essential cmake
-sudo apt-get install libasound2-dev libpulse-dev libvorbisidec-dev libvorbis-dev libopus-dev libflac-dev libsoxr-dev alsa-utils libavahi-client-dev avahi-daemon libexpat1-dev
+sudo apt-get install libasound2-dev libpulse-dev libvorbisidec-dev libvorbis-dev libopus-dev libflac-dev libsoxr-dev alsa-utils libavahi-client-dev avahi-daemon libexpat1-dev chrony
 ```
 
 ### For Arch derivates
 
 ```sh
 sudo pacman -S base-devel cmake
-sudo pacman -S alsa-lib avahi libvorbis opus-dev flac libsoxr alsa-utils boost expat
+sudo pacman -S alsa-lib avahi libvorbis opus-dev flac libsoxr alsa-utils boost expat chrony
 ```
 
 ### For Fedora (and probably RHEL, CentOS, & Scientific Linux, but untested)
 
 ```sh
 sudo dnf install @development-tools cmake
-sudo dnf install alsa-lib-devel avahi-devel gcc-c++ libatomic libvorbis-devel opus-devel pulseaudio-libs-devel flac-devel soxr-devel libstdc++-static expat-devel boost-devel
+sudo dnf install alsa-lib-devel avahi-devel gcc-c++ libatomic libvorbis-devel opus-devel pulseaudio-libs-devel flac-devel soxr-devel libstdc++-static expat-devel boost-devel chrony
 ```
 
 ### For FreeBSD
 
 ```sh
-sudo pkg install alsa-lib pulseaudio cmake gmake gcc bash avahi libogg libvorbis opus flac libsoxr pkgconfig
+sudo pkg install alsa-lib pulseaudio cmake gmake gcc bash avahi libogg libvorbis opus flac libsoxr pkgconfig chrony
 ```
 
 ### For macOS
@@ -67,7 +67,7 @@ sudo pkg install alsa-lib pulseaudio cmake gmake gcc bash avahi libogg libvorbis
  3. Install the required libs
 
 ```sh
-brew install pkgconfig libsoxr expat flac libvorbis boost opus
+brew install pkgconfig libsoxr expat flac libvorbis boost opus chrony
 ```
 
 ## Build Snapclient and Snapserver
