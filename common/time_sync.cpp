@@ -16,9 +16,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ***/
 
-#include "time_sync.hpp"
-#include "aixlog.hpp"
-#include "time_defs.hpp"
+#include "common/time_sync.hpp"
+#include "common/aixlog.hpp"
+#include "common/time_defs.hpp"
 #include "common/chrony_tracker.hpp"
 
 #include <algorithm>
