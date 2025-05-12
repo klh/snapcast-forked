@@ -26,9 +26,6 @@
 
 // 3rd party headers
 #include <boost/asio/read_until.hpp>
-#ifdef HAS_BOOST_PROCESS
-// All Boost.Process headers are already included in the header file
-#endif
 
 // standard headers
 #include <memory>
@@ -150,7 +147,6 @@ ScriptStreamControl::ScriptStreamControl(const boost::asio::any_io_executor& exe
 
 void ScriptStreamControl::doStart(const std::string& stream_id, const ServerSettings& server_setttings)
 {
-#ifdef HAS_BOOST_PROCESS
     pipe_stderr_ = bp::pipe();
     pipe_stdout_ = bp::pipe();
     stringstream params;
@@ -182,27 +178,18 @@ void ScriptStreamControl::doStart(const std::string& stream_id, const ServerSett
     stream_stderr_ = make_unique<boost::asio::posix::stream_descriptor>(executor_, pipe_stderr_.native_source());
     stdoutReadLine();
     stderrReadLine();
-#else
-    LOG(ERROR, LOG_TAG) << "Control script functionality requires Boost.Process which is not available.\n";
-    throw SnapException("Control script functionality requires Boost.Process which is not available.");
-#endif
 }
 
 
 void ScriptStreamControl::doCommand(const jsonrpcpp::Request& request)
 {
-#ifdef HAS_BOOST_PROCESS
     std::string msg = request.to_json().dump() + "\n";
     LOG(INFO, LOG_TAG) << "Sending request: " << msg;
     in_.write(msg.data(), msg.size());
     in_.flush();
-#else
-    LOG(ERROR, LOG_TAG) << "Cannot send command: Boost.Process not available\n";
-#endif
 }
 
 
-#ifdef HAS_BOOST_PROCESS
 void ScriptStreamControl::stderrReadLine()
 {
     const std::string delimiter = "\n";
@@ -222,10 +209,8 @@ void ScriptStreamControl::stderrReadLine()
         stderrReadLine();
     });
 }
-#endif
 
 
-#ifdef HAS_BOOST_PROCESS
 void ScriptStreamControl::stdoutReadLine()
 {
     const std::string delimiter = "\n";
@@ -245,7 +230,6 @@ void ScriptStreamControl::stdoutReadLine()
         stdoutReadLine();
     });
 }
-#endif
 
 
 } // namespace streamreader
