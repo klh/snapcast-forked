@@ -600,8 +600,10 @@ void Controller::initChronyClient(const std::string& server_address)
     auto sync_info = TimeProvider::getInstance().getSyncInfo();
     
     // If TimeProvider is already using Monotonic time source, respect that decision
+    // and completely skip chrony initialization
     if (sync_info.source == time_sync::TimeSyncSource::MONOTONIC) {
         LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as TimeProvider is using local clock";
+        LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: Monotonic";
         initialized = true;
         return;
     }
@@ -609,6 +611,7 @@ void Controller::initChronyClient(const std::string& server_address)
     // Skip chrony setup if client is explicitly set to be on the same machine as server
     if (settings_.time_sync.on_server) {
         LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as --on-server flag is set";
+        LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: Monotonic";
         initialized = true;
         return;
     }
@@ -617,6 +620,7 @@ void Controller::initChronyClient(const std::string& server_address)
     if (server_address.find("localhost") != std::string::npos || 
         server_address.find("127.0.0.1") != std::string::npos) {
         LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as server is on localhost";
+        LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: Monotonic";
         initialized = true;
         return;
     }
@@ -640,11 +644,14 @@ void Controller::initChronyClient(const std::string& server_address)
         // Verify synchronization is working
         chrony_client.checkSynchronization();
         
+        LOG(INFO, LOG_TAG) << "Using chrony for time synchronization";
+        
         initialized = true;
     } catch (const std::exception& e) {
         LOG(ERROR, LOG_TAG) << "Chrony initialization failed: " << e.what();
         // Don't throw, just log the error and continue with system time
         LOG(WARNING, LOG_TAG) << "Falling back to system time";
+        LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: System";
         initialized = true;
     }
 }

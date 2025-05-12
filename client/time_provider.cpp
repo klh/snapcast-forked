@@ -83,11 +83,11 @@ void TimeProvider::verifyChrony()
     // Check if server is running on the same machine
     // If so, we can use the local clock directly
     local_server_ = false;
+    chrony_available_ = false; // Start with chrony disabled by default
     
     // If on_server flag is set, use that directly and skip detection
     if (settings_.on_server) {
         local_server_ = true;
-        chrony_available_ = false; // Explicitly disable chrony when on server
         LOG(INFO, LOG_TAG) << "Using local clock as specified by --on-server flag\n";
         return; // Local server is fine, no need for chrony
     }
@@ -99,7 +99,6 @@ void TimeProvider::verifyChrony()
         char buffer[10];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
             local_server_ = true;
-            chrony_available_ = false; // Explicitly disable chrony when server detected
             LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (pgrep), using local clock\n";
             pclose(fp);
             return; // Local server is fine, no need for chrony
@@ -113,7 +112,6 @@ void TimeProvider::verifyChrony()
         char buffer[128];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
             local_server_ = true;
-            chrony_available_ = false; // Explicitly disable chrony when server detected
             LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (ps), using local clock\n";
             pclose(fp);
             return; // Local server is fine, no need for chrony
@@ -124,20 +122,34 @@ void TimeProvider::verifyChrony()
     // Note: We can't check server host here because TimeSync doesn't have access to it
     // This check is done in Controller::initChronyClient instead
     
+    // If we're using a fixed time source and it's set to MONOTONIC, honor that setting
+    if (settings_.mode == time_sync::SyncMode::fixed && 
+        settings_.preferred_source == static_cast<int>(time_sync::TimeSyncSource::MONOTONIC)) {
+        LOG(INFO, LOG_TAG) << "Using monotonic clock as specified by time source preference\n";
+        local_server_ = true; // Treat as local server to use monotonic clock
+        return;
+    }
+    
     LOG(INFO, LOG_TAG) << "No local snapserver detected, will use chrony for time synchronization\n";
     
     // For remote server, chrony is required
     auto& chronyClient = snapclient::ChronyClient::getInstance();
     
-    // Verify chrony is installed using the base class method
-    chronyClient.verifyChronoInstalled();
-    
-    // Mark chrony as available
-    chrony_available_ = true;
-    LOG(INFO, LOG_TAG) << "Chrony detected and available for time synchronization\n";
-    
-    // Check if chrony is synchronized
-    checkSynchronization();
+    try {
+        // Verify chrony is installed using the base class method
+        chronyClient.verifyChronoInstalled();
+        
+        // Mark chrony as available
+        chrony_available_ = true;
+        LOG(INFO, LOG_TAG) << "Chrony detected and available for time synchronization\n";
+        
+        // Check if chrony is synchronized
+        checkSynchronization();
+    } catch (const std::exception& e) {
+        LOG(ERROR, LOG_TAG) << "Chrony initialization failed: " << e.what() << "\n";
+        LOG(WARNING, LOG_TAG) << "Falling back to system time\n";
+        chrony_available_ = false;
+    }
 }
 
 void TimeProvider::checkSynchronization()
