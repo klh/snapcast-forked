@@ -28,6 +28,11 @@
 #include "time_defs.hpp"
 #include "message/message.hpp"
 
+// Forward declaration
+namespace msg {
+    class Time;
+}
+
 namespace time_sync {
 
 /**

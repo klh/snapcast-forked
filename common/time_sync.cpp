@@ -19,13 +19,13 @@
 #include "time_sync.hpp"
 #include "aixlog.hpp"
 #include "time_defs.hpp"
+#include "message/time.hpp"
 
-// Chrony tracker functionality integrated directly
+// Standard headers
 #include <string>
 #include <map>
 #include <chrono>
 #include <optional>
-
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -34,6 +34,7 @@
 #include <memory>
 #include <stdexcept>
 
+static constexpr auto LOG_TAG = "TimeSync";
 static constexpr auto CHRONY_LOG_TAG = "ChronyTracker";
 
 // Helper function to safely execute a command and capture its output
@@ -43,7 +44,7 @@ static std::string execCommand(const std::string& cmd) {
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
 
     if (!pipe) {
-        LOG(WARNING, CHRONY_LOG_TAG) << "Failed to execute command: " << cmd << "\n";
+        LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd << "\n";
         return "";
     }
 
@@ -105,31 +106,29 @@ struct ChronyTrackingInfo {
  */
 class ChronyTracker {
 public:
+    // Singleton accessor
+    static ChronyTracker& getInstance() {
+        static ChronyTracker instance;
+        return instance;
+    }
+    
     // Get tracking information
-    static ChronyTrackingInfo getTrackingInfo(bool csv_format = false) {
+    ChronyTrackingInfo getTrackingInfo(bool csv_format = false) {
         return ChronyTrackingInfo::fromChronyc(csv_format);
+    }
+    
+    // Check if chrony is available
+    bool isAvailable() {
+        return !getTrackingInfo().raw_output.empty();
+    }
+    
+    // Get raw tracking output
+    std::string getRawTracking() {
+        return getTrackingInfo().raw_output;
     }
 };
 
-
-static constexpr auto LOG_TAG = "TimeSync";
-
-// Helper function to safely execute a command and capture its output
-static std::string execCommand(const std::string& cmd) {
-    std::string result;
-    std::array<char, 128> buffer;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
-
-    if (!pipe) {
-        LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd << "\n";
-        return "";
-    }
-
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
-}
+} // namespace snapcast
 
 namespace time_sync {
 
@@ -200,47 +199,37 @@ bool isTimeSourceAvailable(TimeSyncSource source)
                     return true;
                 }
                 
-                // Check if linuxptp is installed
-                result = execCommand("which ptp4l 2>/dev/null");
-                if (!result.empty())
-                {
-                    LOG(DEBUG, LOG_TAG) << "PTP tools installed\n";
-                    return true;
-                }
+                return false;
             }
-            return false;
             
         case TimeSyncSource::NTP:
             // Check if NTP is available
             {
-                std::string result = execCommand("ntpq -p 2>/dev/null");
-                if (!result.empty() && result.find("remote") != std::string::npos)
-                {
-                    LOG(DEBUG, LOG_TAG) << "NTP available via ntpq\n";
-                    return true;
-                }
-                
                 // Check if ntpd is running
-                result = execCommand("ps -ef | grep ntp[d] 2>/dev/null");
+                std::string result = execCommand("ps -ef | grep ntp[d] 2>/dev/null");
                 if (!result.empty())
                 {
                     LOG(DEBUG, LOG_TAG) << "NTP daemon detected running\n";
                     return true;
                 }
                 
-                // Check if systemd-timesyncd is running (used on some systems instead of ntpd)
-                result = execCommand("systemctl status systemd-timesyncd 2>/dev/null | grep active");
-                if (!result.empty() && result.find("active") != std::string::npos)
+                // Check if systemd-timesyncd is running
+                result = execCommand("ps -ef | grep systemd-timesync[d] 2>/dev/null");
+                if (!result.empty())
                 {
-                    LOG(DEBUG, LOG_TAG) << "systemd-timesyncd active\n";
+                    LOG(DEBUG, LOG_TAG) << "systemd-timesyncd detected running\n";
                     return true;
                 }
+                
+                return false;
             }
-            return false;
             
         case TimeSyncSource::MONOTONIC:
+            // Monotonic clock is always available
+            return true;
+            
         case TimeSyncSource::SYSTEM:
-            // Monotonic and system clocks are always available
+            // System clock is always available
             return true;
             
         default:
@@ -352,32 +341,26 @@ static TimeValue queryTimeSource(TimeSyncSource source) {
         chronos::systemtimeofday(&tv);
         auto duration = chronos::usec(tv.tv_sec * 1000000LL + tv.tv_usec);
         now = chronos::time_point_clk(duration);
-        raw = "system_clock";
-    } else {
-        // For external time sources, use the system time but get the raw output
-        struct timeval tv;
-        chronos::systemtimeofday(&tv);
-        auto duration = chronos::usec(tv.tv_sec * 1000000LL + tv.tv_usec);
-        now = chronos::time_point_clk(duration);
-        
-        switch (source) {
-            case TimeSyncSource::CHRONY:
-                // Get raw tracking output directly from chronyc
-                raw = snapcast::ChronyTracker::getInstance().getRawTracking();
-                break;
-            case TimeSyncSource::PTP:
-                raw = execCommand("pmc -u -b 0 'GET TIME_STATUS_NP' 2>/dev/null");
-                break;
-            case TimeSyncSource::NTP:
-                raw = execCommand("ntpq -c rl 2>/dev/null");
-                break;
-            default:
-                throw std::runtime_error("Invalid time source.");
+        raw = "system";
+    } else if (source == TimeSyncSource::CHRONY) {
+        // Use chrony time
+        now = chronos::clk::now(); // Use monotonic clock as base
+        raw = snapcast::ChronyTracker::getInstance().getRawTracking();
+        if (raw.empty()) {
+            throw std::runtime_error("Chrony not available");
         }
-    }
-
-    if (raw.empty() && source != TimeSyncSource::MONOTONIC && source != TimeSyncSource::SYSTEM) {
-        throw std::runtime_error("Failed to query source.");
+    } else if (source == TimeSyncSource::PTP) {
+        // Use PTP time
+        now = chronos::clk::now(); // Use monotonic clock as base
+        // TODO: Implement PTP time source
+        raw = "ptp";
+    } else if (source == TimeSyncSource::NTP) {
+        // Use NTP time
+        now = chronos::clk::now(); // Use monotonic clock as base
+        // TODO: Implement NTP time source
+        raw = "ntp";
+    } else {
+        throw std::runtime_error("Unknown time source");
     }
 
     return TimeValue{source, now, raw};
@@ -426,9 +409,6 @@ TimeValue getTime(TimeSyncSource specific, const std::vector<TimeSyncSource>& pr
         throw std::runtime_error("No valid time sources available.");
     }
 }
-
-// Define LOG_TAG for the new functions
-#define LOG_TAG "TimeSync"
 
 TimeSyncInfo getDefaultQualityMetrics(TimeSyncSource source)
 {
@@ -539,6 +519,10 @@ TimeStatus getTimeStatus(double diff_ms)
     return status;
 }
 
+void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
+{
+    // Log active time source and its quality
+    LOG(NOTICE, log_tag) << "Time synchronization initialized using " 
                         << timeSourceToString(status.active_source) 
                         << " (quality: " << status.active_source_info.quality 
                         << ", estimated error: " << status.active_source_info.estimated_error_ms << "ms)";
@@ -571,6 +555,8 @@ TimeStatus getTimeStatus(double diff_ms)
     } else {
         LOG(INFO, log_tag) << "Using legacy time sync protocol V1";
     }
+}
+
 TimeStatus initAndLogTimeSync(const std::string& log_tag, 
                               double diff_ms, 
                               ProtocolVersion protocol_version,
@@ -635,39 +621,72 @@ void populateTimeMessage(msg::Time* timeMsg,
                          TimeSyncSource source,
                          ProtocolVersion version)
 {
-    if (!timeMsg) return;
+    if (!timeMsg) {
+        LOG(ERROR, LOG_TAG) << "Cannot populate null time message\n";
+        return;
+    }
     
     // Set protocol version
     timeMsg->version = static_cast<uint8_t>(version);
     
-    if (version >= ProtocolVersion::V2) {
-        // Get time sources once to avoid race condition
-        auto time_sources = getAllTimeSourcesInfo();
-        
-        // For V2+ protocol, include time source information
-        if (source == TimeSyncSource::NONE) {
-            // Auto-select best source
-            source = selectBestTimeSource(time_sources);
+    // Initialize latency to zero
+    timeMsg->latency.sec = 0;
+    timeMsg->latency.usec = 0;
+    
+    // If a specific time source is requested, try to use it
+    if (source != TimeSyncSource::NONE) {
+        if (isTimeSourceAvailable(source)) {
+            try {
+                auto time_value = queryTimeSource(source);
+                timeMsg->source = static_cast<uint8_t>(source);
+                timeMsg->quality = time_value.quality;
+                timeMsg->error_ms = time_value.estimated_error_ms;
+                // Set timestamp in the BaseMessage sent field
+                timeMsg->sent.sec = static_cast<int32_t>(time_value.timestamp.time_since_epoch().count() / 1000000);
+                timeMsg->sent.usec = static_cast<int32_t>(time_value.timestamp.time_since_epoch().count() % 1000000);
+            } catch (const std::exception& e) {
+                LOG(WARNING, LOG_TAG) << "Failed to get time from " << timeSourceToString(source) 
+                                     << ", falling back to best available: " << e.what() << "\n";
+                // Fall back to best available
+                source = TimeSyncSource::NONE;
+            }
+        } else {
+            LOG(WARNING, LOG_TAG) << "Requested time source " << timeSourceToString(source) 
+                                 << " not available, falling back to best available\n";
+            // Fall back to best available
+            source = TimeSyncSource::NONE;
         }
-        
-        // Get source info
-        TimeSyncInfo sourceInfo = getDefaultQualityMetrics(source);
-        auto it = time_sources.find(source);
-        if (it != time_sources.end()) {
-            sourceInfo = it->second;
+    }
+    
+    // If no specific source or the specific source failed, use best available
+    if (source == TimeSyncSource::NONE) {
+        try {
+            auto time_value = getTime();
+            timeMsg->source = static_cast<uint8_t>(time_value.source);
+            timeMsg->quality = time_value.quality;
+            timeMsg->error_ms = time_value.estimated_error_ms;
+            // Set timestamp in the BaseMessage sent field
+            timeMsg->sent.sec = static_cast<int32_t>(time_value.timestamp.time_since_epoch().count() / 1000000);
+            timeMsg->sent.usec = static_cast<int32_t>(time_value.timestamp.time_since_epoch().count() % 1000000);
+        } catch (const std::exception& e) {
+            LOG(ERROR, LOG_TAG) << "Failed to get time: " << e.what() << "\n";
+            // Use system time as last resort
+            struct timeval tv;
+            chronos::systemtimeofday(&tv);
+            timeMsg->source = static_cast<uint8_t>(TimeSyncSource::SYSTEM);
+            timeMsg->quality = 0.4f;
+            timeMsg->error_ms = 100.0f;
+            // Set timestamp in the BaseMessage sent field
+            timeMsg->sent.sec = tv.tv_sec;
+            timeMsg->sent.usec = tv.tv_usec;
         }
-        
-        // Set time source information
-        timeMsg->source = static_cast<uint8_t>(source);
-        timeMsg->quality = sourceInfo.quality;
-        timeMsg->error_ms = sourceInfo.estimated_error_ms;
     }
 }
 
 TimeStatus processTimeResponse(const msg::Time* response, double diff_ms)
 {
     if (!response) {
-        throw std::invalid_argument("Null time response");
+        throw std::invalid_argument("Time response message is null");
     }
     
     // Create time status
@@ -676,71 +695,36 @@ TimeStatus processTimeResponse(const msg::Time* response, double diff_ms)
     // Set protocol version
     status.protocol_version = ensureValidProtocolVersion(response->version);
     
-    // Set time difference
-    status.diff_ms = diff_ms;
+    // Set active time source from response
+    status.active_source = intToTimeSource(response->source);
     
-    // For V2+ protocol, extract time source information
-    if (status.protocol_version >= ProtocolVersion::V2) {
-        TimeSyncSource source = static_cast<TimeSyncSource>(response->source);
-        status.active_source = source;
-        
-        // Create source info
-        TimeSyncInfo sourceInfo = getDefaultQualityMetrics(source);
-        sourceInfo.quality = response->quality;
-        sourceInfo.estimated_error_ms = response->error_ms;
-        sourceInfo.available = true;
-        
-        status.active_source_info = sourceInfo;
-    } else {
-        // For V1 protocol, use monotonic clock
-        status.active_source = TimeSyncSource::MONOTONIC;
-        status.active_source_info = getDefaultQualityMetrics(TimeSyncSource::MONOTONIC);
+    // Create TimeValue from response
+    chronos::time_point_clk timestamp;
+    try {
+        // Convert the response timestamp to chronos time_point_clk
+        auto duration = chronos::usec(response->sent.sec * 1000000LL + response->sent.usec);
+        timestamp = chronos::time_point_clk(duration);
+    } catch (const std::exception& e) {
+        LOG(WARNING, LOG_TAG) << "Failed to convert timestamp: " << e.what() << "\n";
+        // Use current time as fallback
+        timestamp = chronos::clk::now();
     }
+    
+    status.current_time = TimeValue{
+        status.active_source,
+        timestamp,
+        "from_server"
+    };
+    status.current_time.quality = response->quality;
+    status.current_time.estimated_error_ms = response->error_ms;
     
     // Get available sources
     status.available_sources = getAllTimeSourcesInfo();
     
-    // Get current time
-    status.current_time = getTime(status.active_source);
+    // Set time difference
+    status.diff_ms = diff_ms;
     
     return status;
 }
 
 } // namespace time_sync
-void logTimeStatus(const TimeStatus& status, const std::string& log_tag)
-{
-    // Log active time source and its quality
-    LOG(NOTICE, log_tag) << "Time synchronization initialized using " 
-                        << timeSourceToString(status.active_source) 
-                        << " (quality: " << status.active_source_info.quality 
-                        << ", estimated error: " << status.active_source_info.estimated_error_ms << "ms)";
-    
-    // For chrony, directly show the raw chronyc output
-    if (status.active_source == TimeSyncSource::CHRONY) {
-        // Get raw output from chronyc
-        std::string chrony_output = snapcast::ChronyTracker::getInstance().getRawTracking();
-        if (!chrony_output.empty()) {
-            LOG(INFO, log_tag) << "Chrony tracking information:\n" << chrony_output;
-        }
-    } else {
-        // For other sources, log standard information
-        LOG(INFO, log_tag) << "Current time source: " 
-                          << timeSourceToString(status.current_time.source) 
-                          << ", quality: " << status.current_time.quality 
-                          << ", error: " << status.current_time.estimated_error_ms << "ms";
-    }
-    
-    // Log protocol version as a separate log entry
-    if (status.protocol_version > ProtocolVersion::V1) {
-        LOG(INFO, log_tag) << "Time sync protocol version: V" 
-                          << static_cast<int>(status.protocol_version);
-        
-        // Log time difference if available
-        if (status.diff_ms != 0) {
-            LOG(INFO, log_tag) << "Time difference to server: " 
-                              << status.diff_ms << "ms";
-        }
-    } else {
-        LOG(INFO, log_tag) << "Using legacy time sync protocol V1";
-    }
-}
