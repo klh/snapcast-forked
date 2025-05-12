@@ -152,6 +152,7 @@ int main(int argc, char** argv)
         auto host_opt = op.add<Value<string>>("h", "host", "(deprecated, use [url]) Server hostname or ip address", "", &settings.server.host);
         auto port_opt = op.add<Value<size_t>>("p", "port", "(deprecated, use [url]) Server port", 1704, &settings.server.port);
         op.add<Value<size_t>>("i", "instance", "Instance id when running multiple instances on the same host", 1, &settings.instance);
+        op.add<Value<string>>("n", "name", "Client name", "", &settings.host_id);
         op.add<Value<string>>("", "hostID", "Unique host id, default is MAC address", "", &settings.host_id);
         op.add<Value<std::filesystem::path>>("", "cert", "Client certificate file (PEM format)", settings.server.certificate, &settings.server.certificate);
         op.add<Value<std::filesystem::path>>("", "cert-key", "Client private key file (PEM format)", settings.server.certificate_key,
