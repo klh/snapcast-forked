@@ -288,7 +288,7 @@ std::string ChronyClient::getStatus() const
     return status.str();
 }
 
-std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
+std::optional<snapcast::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
     if (!isConnected()) {
         return std::nullopt;
     }

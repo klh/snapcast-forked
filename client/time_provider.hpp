@@ -50,6 +50,22 @@ public:
     void setDiffToServer(double ms);
     void setDiff(const tv& c2s, const tv& s2c);
     
+    /**
+     * Public wrapper to access the protocol version
+     * @return Current protocol version
+     */
+    time_sync::ProtocolVersion getProtocolVersion() const {
+        return TimeManager::getProtocolVersion();
+    }
+    
+    /**
+     * Public wrapper to set the protocol version
+     * @param version Protocol version to set
+     */
+    void setProtocolVersion(time_sync::ProtocolVersion version) {
+        TimeManager::setProtocolVersion(version);
+    }
+    
     /// Negotiate the best time synchronization source with the server
     void negotiateSyncSource(const time_sync::TimeSyncInfo& server_info);
     

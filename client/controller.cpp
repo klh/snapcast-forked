@@ -84,11 +84,9 @@ Controller::Controller(boost::asio::io_context& io_context, const ClientSettings
 #endif
       timer_(io_context), settings_(settings), stream_(nullptr), decoder_(nullptr), player_(nullptr), serverSettings_(nullptr)
 {
-    // Initialize TimeProvider with client settings
+    // Initialize time provider
+    // Note: Protocol version defaults to V2 in the TimeManager constructor
     TimeProvider::getInstance().configure(settings.time_sync);
-    
-    // Set protocol version to V2 by default, will be downgraded to V1 if server doesn't support it
-    TimeProvider::getInstance().setProtocolVersion(time_sync::ProtocolVersion::V2);
     
     LOG(INFO, LOG_TAG) << "Initialized TimeProvider with preferred source: " 
                        << time_sync::timeSourceToString(time_sync::intToTimeSource(settings.time_sync.preferred_source))
@@ -324,7 +322,8 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
     
     // Use the standardized helper to populate the time message
     auto& timeProvider = TimeProvider::getInstance();
-    time_sync::ProtocolVersion protocol_version = timeProvider.getProtocolVersion();
+    // Use protocol version V2 by default
+    time_sync::ProtocolVersion protocol_version = time_sync::ProtocolVersion::V2;
     
     if (protocol_version != time_sync::ProtocolVersion::V1) {
         // For V2+ protocol, include time source information
@@ -605,8 +604,8 @@ bool Controller::initChronyClient(const std::string& server_address)
     
     LOG(INFO, LOG_TAG) << "Initializing chrony client for time synchronization with server: " << server_address;
     
-    // Create a temporary directory for chrony configuration
-    std::string config_dir = "/tmp/snapclient_chrony_" + settings_.host_id;
+    // Get config directory from settings
+    std::string config_dir = settings_.rundir + "/chrony";
     
     // Initialize chrony client
     auto& chrony_client = snapclient::ChronyClient::getInstance();
@@ -631,6 +630,5 @@ bool Controller::initChronyClient(const std::string& server_address)
 void Controller::disconnectChronyClient()
 {
     LOG(INFO, LOG_TAG) << "Disconnecting from chrony server";
-    // Note: ChronyClient doesn't have a disconnect method by design
-    // Chrony configuration persists until system restart
+    snapclient::ChronyClient::getInstance().disconnect();
 }

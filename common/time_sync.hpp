@@ -142,25 +142,6 @@ struct TimeValue {
 };
 
 /**
- * Structure to hold chrony tracking information
- */
-struct ChronyTrackingInfo {
-    std::string reference_id;           ///< Reference ID
-    std::string ip_address;            ///< IP address of the reference
-    std::string stratum;               ///< Stratum level
-    double ref_time;                   ///< Reference time
-    double system_time;                ///< System time
-    double last_offset;                ///< Last offset
-    double rms_offset;                 ///< RMS offset
-    double frequency;                  ///< Frequency
-    double residual_freq;              ///< Residual frequency
-    double skew;                       ///< Skew
-    double root_delay;                 ///< Root delay
-    double root_dispersion;            ///< Root dispersion
-    double update_interval;            ///< Update interval
-};
-
-/**
  * Get default quality metrics for a time source
  * @param source The time source
  * @return TimeSyncInfo with default quality metrics for the source

@@ -77,6 +77,13 @@ protected:
      */
     time_sync::TimeSyncInfo getCurrentSourceInfo() const;
     
+protected:
+    /**
+     * Get protocol version
+     * @return Current protocol version
+     */
+    time_sync::ProtocolVersion getProtocolVersion() const;
+    
     /**
      * Get protocol version
      * @return Current protocol version
