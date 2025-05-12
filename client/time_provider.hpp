@@ -23,6 +23,7 @@
 #include "common/message/message.hpp"
 #include "common/time_defs.hpp"
 #include "common/time_sync.hpp"
+#include "common/chrony_base.hpp"
 
 // standard headers
 #include <atomic>

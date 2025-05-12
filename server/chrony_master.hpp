@@ -18,7 +18,7 @@
 
 #pragma once
 
-#include "common/time_sync.hpp"
+#include "common/chrony_base.hpp"
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -38,7 +38,7 @@ namespace snapserver {
  * 3. Monitor the server status
  * 4. Allow clients to connect and synchronize
  */
-class ChronyMaster {
+class ChronyMaster : public chrony::ChronyBase {
 public:
     // Get the singleton instance
     static ChronyMaster& getInstance() {
@@ -71,11 +71,11 @@ public:
      */
     void isRunning() const;
     
-    /**
-     * Check if chrony is properly synchronized and serving time
-     * @throws std::runtime_error if chrony is not properly synchronized
-     */
-    void checkSynchronization() const;
+    // Methods inherited from ChronyBase:
+    // - verifyChronoInstalled()
+    // - checkSynchronization()
+    // - getTrackingInfo()
+    // - getStatus()
     
     /**
      * Get the current server status

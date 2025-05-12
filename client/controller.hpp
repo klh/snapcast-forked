@@ -71,8 +71,8 @@ private:
      */
     void initChronyClient(const std::string& server_address);
     
-    // Disconnect from the server's chrony master
-    void disconnectChronyClient();
+    // Chrony connections are maintained throughout the client's lifetime
+    // No disconnection method needed
 
     boost::asio::io_context& io_context_;
 #ifdef HAS_OPENSSL

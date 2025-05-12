@@ -33,22 +33,7 @@ namespace fs = std::filesystem;
 
 static constexpr auto LOG_TAG = "ChronyMaster";
 
-// Helper function to safely execute a command and capture its output
-static std::string execCommand(const std::string& cmd) {
-    std::string result;
-    std::array<char, 128> buffer;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
-
-    if (!pipe) {
-        LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd << "\n";
-        return "";
-    }
-
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
-}
+// Using execCommand from ChronyBase
 
 namespace snapserver {
 
@@ -63,10 +48,8 @@ void ChronyMaster::init(const std::string& config_dir, uint16_t port) {
         throw std::runtime_error("Cannot initialize chrony master while it is already running");
     }
     
-    // Check if chrony is installed - this is now a hard requirement
-    if (!isChronyInstalled()) {
-        throw std::runtime_error("Chrony is not installed. It is required for time synchronization.");
-    }
+    // Verify chrony is installed - this is a hard requirement
+    verifyChronoInstalled();
     
     // Store configuration parameters
     port_ = port;
@@ -348,10 +331,7 @@ std::optional<time_sync::TimeSyncInfo> ChronyMaster::getTrackingInfo() {
 
 // No configuration file generation - using direct chronyc commands
 
-bool ChronyMaster::isChronyInstalled() const {
-    std::string result = execCommand("which chronyd 2>/dev/null");
-    return !result.empty();
-}
+// Using isChronyInstalled from ChronyBase
 
 // No monitor thread implementation - assuming chrony works if configured properly
 

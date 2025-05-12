@@ -57,8 +57,8 @@ void TimeProvider::configure(const ClientSettings::TimeSync& settings)
     // Store settings
     settings_ = settings;
     
-    // Re-check if chrony is available
-    detectChrony();
+    // Verify chrony is available and properly configured
+    verifyChrony();
 }
 
 void TimeProvider::verifyChrony()
@@ -83,10 +83,8 @@ void TimeProvider::verifyChrony()
     // For remote server, chrony is required
     auto& chronyClient = snapclient::ChronyClient::getInstance();
     
-    // Check if chrony is installed
-    if (!chronyClient.isChronyInstalled()) {
-        throw std::runtime_error("Chrony is not installed. It is required for time synchronization.");
-    }
+    // Verify chrony is installed using the base class method
+    chronyClient.verifyChronoInstalled();
     
     // Mark chrony as available
     chrony_available_ = true;
@@ -103,11 +101,9 @@ void TimeProvider::checkSynchronization()
         return;
     }
     
-    // Check if chrony is synchronized
+    // Use the ChronyBase method to check synchronization
     auto& chronyClient = snapclient::ChronyClient::getInstance();
-    if (!chronyClient.isSynchronized()) {
-        throw std::runtime_error("Chrony is not properly synchronized. Accurate time synchronization is required.");
-    }
+    chronyClient.checkSynchronization();
     
     LOG(DEBUG, LOG_TAG) << "Chrony synchronization verified\n";
 }

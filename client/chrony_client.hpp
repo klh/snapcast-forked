@@ -18,7 +18,7 @@
 
 #pragma once
 
-#include "common/time_sync.hpp"
+#include "common/chrony_base.hpp"
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -37,7 +37,7 @@ namespace snapclient {
  * Once established, chrony connections are maintained throughout the client's lifetime,
  * even when the client disconnects from the server, to ensure consistent synchronization.
  */
-class ChronyClient {
+class ChronyClient : public chrony::ChronyBase {
 public:
     // Get the singleton instance
     static ChronyClient& getInstance() {
@@ -73,29 +73,11 @@ public:
      */
     bool isConnected() const;
     
-    /**
-     * Check if chrony is installed
-     * @return True if chrony is installed
-     */
-    bool isChronyInstalled();
-    
-    /**
-     * Check if chrony is properly synchronized
-     * @return True if chrony is synchronized with a time source
-     */
-    bool isSynchronized();
-    
-    /**
-     * Get the current synchronization status
-     * @return A string containing synchronization status information
-     */
-    std::string getStatus() const;
-    
-    /**
-     * Get detailed tracking information
-     * @return Chrony tracking information
-     */
-    std::optional<time_sync::ChronyTrackingInfo> getTrackingInfo() const;
+    // Methods inherited from ChronyBase:
+    // - isChronyInstalled()
+    // - isSynchronized()
+    // - getStatus()
+    // - getTrackingInfo()
     
     /**
      * Get the server address we're connected to

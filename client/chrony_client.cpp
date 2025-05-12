@@ -18,37 +18,14 @@
 
 #include "chrony_client.hpp"
 #include "common/aixlog.hpp"
-#include <array>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <stdexcept>
-#include <system_error>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <signal.h>
 
 namespace fs = std::filesystem;
 
 static constexpr auto LOG_TAG = "ChronyClient";
-
-// Helper function to safely execute a command and capture its output
-static std::string execCommand(const std::string& cmd) {
-    std::string result;
-    std::array<char, 128> buffer;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
-
-    if (!pipe) {
-        LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd << "\n";
-        return "";
-    }
-
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
-}
 
 namespace snapclient {
 
@@ -79,10 +56,8 @@ void ChronyClient::init(const std::string& config_dir) {
         throw std::runtime_error("Cannot initialize chrony client while already connected");
     }
     
-    // Check if chrony is installed - this is now a hard requirement
-    if (!isChronyInstalled()) {
-        throw std::runtime_error("Chrony is not installed. It is required for time synchronization.");
-    }
+    // Verify chrony is installed - this is a hard requirement
+    verifyChronoInstalled();
     
     // Check if snapserver is running on the same system
     bool is_local_server = false;
@@ -277,41 +252,21 @@ bool ChronyClient::isConnected() const {
     return connected_;
 }
 
+// Using getStatus from ChronyBase with client-specific override
 std::string ChronyClient::getStatus() const
 {
     if (!isConnected()) {
         return "Not connected to chrony server";
     }
     
-    // Get tracking information directly from chronyc
-    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
-    if (tracking.empty()) {
-        return "Connected to chrony server but tracking information is not available";
-    }
-    
-    // Get sources information directly from chronyc
-    std::string sources = execCommand("chronyc -c sources 2>/dev/null");
-    
-    // Get sourcestats information directly from chronyc
-    std::string sourcestats = execCommand("chronyc -c sourcestats 2>/dev/null");
-    
     std::stringstream status;
     status << "Connected to chrony server at " << server_address_ << "\n\n";
-    status << "Tracking:\n" << tracking << "\n";
-    status << "Sources:\n" << sources << "\n";
-    status << "Source Statistics:\n" << sourcestats;
+    status << chrony::ChronyBase::getStatus();
     
     return status.str();
 }
 
-std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
-    if (!isConnected()) {
-        return std::nullopt;
-    }
-    
-    std::string tracking = execCommand("chronyc -n tracking 2>/dev/null");
-    return time_sync::ChronyTrackingInfo::parse(tracking);
-}
+// Using getTrackingInfo from ChronyBase
 
 std::string ChronyClient::getServerAddress() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -365,51 +320,9 @@ bool ChronyClient::configureClient(const std::string& server_address, uint16_t p
     return true;
 }
 
-bool ChronyClient::isChronyInstalled() {
-    std::string result = execCommand("which chronyd 2>/dev/null");
-    return !result.empty();
-}
+// Using isChronyInstalled from ChronyBase
 
-bool ChronyClient::isSynchronized() {
-    // Get tracking information from chronyc
-    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
-    if (tracking.empty()) {
-        LOG(WARNING, LOG_TAG) << "Failed to get chrony tracking information\n";
-        return false;
-    }
-    
-    // Parse the tracking information
-    // The 5th field in CSV output contains the stratum (lower is better)
-    // Stratum 0 = reference clock, 1 = primary server, 2+ = secondary servers
-    std::istringstream iss(tracking);
-    std::string field;
-    int field_count = 0;
-    int stratum = 16; // Default to highest (worst) stratum
-    
-    // Parse CSV format
-    while (std::getline(iss, field, ',')) {
-        field_count++;
-        if (field_count == 5) {
-            try {
-                stratum = std::stoi(field);
-            } catch (...) {
-                // Failed to parse stratum
-            }
-            break;
-        }
-    }
-    
-    // Consider synchronized if stratum is 0-10 (0-2 is good, 3-10 is acceptable)
-    bool synchronized = (stratum >= 0 && stratum <= 10);
-    
-    if (synchronized) {
-        LOG(DEBUG, LOG_TAG) << "Chrony is synchronized with stratum " << stratum << "\n";
-    } else {
-        LOG(WARNING, LOG_TAG) << "Chrony is not properly synchronized (stratum " << stratum << ")\n";
-    }
-    
-    return synchronized;
-}
+// Using isSynchronized from ChronyBase
 
 bool ChronyClient::startClient() {
     // Check if chronyd is already running

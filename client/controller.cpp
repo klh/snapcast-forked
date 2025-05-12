@@ -611,9 +611,7 @@ void Controller::initChronyClient(const std::string& server_address)
         LOG(NOTICE, LOG_TAG) << "Connected to chrony server at " << server_address;
         
         // Verify synchronization is working
-        if (!chrony_client.isSynchronized()) {
-            throw std::runtime_error("Chrony is not properly synchronized with the server");
-        }
+        chrony_client.checkSynchronization();
         
         initialized = true;
     } catch (const std::exception& e) {
@@ -622,8 +620,5 @@ void Controller::initChronyClient(const std::string& server_address)
     }
 }
 
-void Controller::disconnectChronyClient()
-{
-    LOG(INFO, LOG_TAG) << "Note: ChronyClient has no disconnect method - configuration persists until system restart";
-    // No action needed - chrony configuration persists until system restart
-}
+// Chrony connections are maintained throughout the client's lifetime
+// No disconnection method needed
