@@ -74,7 +74,7 @@ public:
      * Get detailed tracking information
      * @return Chrony tracking information
      */
-    std::optional<snapcast::ChronyTrackingInfo> getTrackingInfo() const;
+    std::optional<time_sync::ChronyTrackingInfo> getTrackingInfo() const;
     
     /**
      * Get the server address we're connected to

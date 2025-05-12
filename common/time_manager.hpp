@@ -85,12 +85,6 @@ protected:
     time_sync::ProtocolVersion getProtocolVersion() const;
     
     /**
-     * Get protocol version
-     * @return Current protocol version
-     */
-    time_sync::ProtocolVersion getProtocolVersion() const;
-    
-    /**
      * Set protocol version
      * @param version Protocol version to set
      */

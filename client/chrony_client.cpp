@@ -288,13 +288,13 @@ std::string ChronyClient::getStatus() const
     return status.str();
 }
 
-std::optional<snapcast::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
+std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() const {
     if (!isConnected()) {
         return std::nullopt;
     }
     
     std::string tracking = execCommand("chronyc -n tracking 2>/dev/null");
-    return snapcast::ChronyTrackingInfo::parse(tracking);
+    return time_sync::ChronyTrackingInfo::parse(tracking);
 }
 
 std::string ChronyClient::getServerAddress() const {

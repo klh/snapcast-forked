@@ -23,6 +23,8 @@
 #include "common/aixlog.hpp"
 #include "common/message/hello.hpp"
 #include "common/message/time.hpp"
+#include "common/message/client_info.hpp"
+#include "common/message/server_settings.hpp"
 #include "common/snap_exception.hpp"
 #include "common/time_defs.hpp"
 #include "common/utils.hpp"
@@ -285,7 +287,7 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
                 try {
                     // Use the standardized helper to populate the time message
                     // This will automatically select the best time source
-                    time_sync::populateTimeMessage(timeMsg, time_sync::TimeSyncSource::NONE, protocol_version);
+                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::NONE, protocol_version);
                     
                     // Log the selected time source
                     LOG(DEBUG, LOG_TAG) << "Server using time source: " 
@@ -295,7 +297,7 @@ void Server::onMessageReceived(StreamSession* streamSession, const msg::BaseMess
                     LOG(WARNING, LOG_TAG) << "Error getting time: " << e.what() << ", using system time\n";
                     
                     // Fall back to system time using the standardized helper
-                    time_sync::populateTimeMessage(timeMsg, time_sync::TimeSyncSource::SYSTEM, protocol_version);
+                    time_sync::populateTimeMessage(timeMsg.get(), time_sync::TimeSyncSource::SYSTEM, protocol_version);
                 }
             }
             else
@@ -527,8 +529,8 @@ bool Server::initChronyMaster()
     
     LOG(INFO, LOG_TAG) << "Initializing chrony master for time synchronization";
     
-    // Get config directory from settings
-    std::string config_dir = settings_.rundir + "/chrony";
+    // Create a temporary directory for chrony configuration
+    std::string config_dir = "/tmp/snapserver_chrony_" + std::to_string(getpid());
     
     // Initialize chrony master
     auto& chrony_master = snapserver::ChronyMaster::getInstance();

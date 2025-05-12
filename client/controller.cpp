@@ -604,8 +604,8 @@ bool Controller::initChronyClient(const std::string& server_address)
     
     LOG(INFO, LOG_TAG) << "Initializing chrony client for time synchronization with server: " << server_address;
     
-    // Get config directory from settings
-    std::string config_dir = settings_.rundir + "/chrony";
+    // Create a temporary directory for chrony configuration
+    std::string config_dir = "/tmp/snapclient_chrony_" + std::to_string(getpid());
     
     // Initialize chrony client
     auto& chrony_client = snapclient::ChronyClient::getInstance();
@@ -629,6 +629,6 @@ bool Controller::initChronyClient(const std::string& server_address)
 
 void Controller::disconnectChronyClient()
 {
-    LOG(INFO, LOG_TAG) << "Disconnecting from chrony server";
-    snapclient::ChronyClient::getInstance().disconnect();
+    LOG(INFO, LOG_TAG) << "Note: ChronyClient has no disconnect method - configuration persists until system restart";
+    // No action needed - chrony configuration persists until system restart
 }
