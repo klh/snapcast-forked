@@ -81,11 +81,11 @@ public:
     /// Get current time sync information
     time_sync::TimeSyncInfo getSyncInfo() const;
     
-    /// Override: Get current time using the selected or specified time source
-    chronos::time_point_clk getCurrentTime(time_sync::TimeSyncSource specific = time_sync::TimeSyncSource::NONE) override;
+    /// Get current time using the selected or specified time source
+    chronos::time_point_clk getCurrentTime(time_sync::TimeSyncSource specific = time_sync::TimeSyncSource::NONE);
     
-    /// Override: Detect available time sources on the system
-    void detectAvailableTimeSources() override;
+    /// Detect available time sources on the system
+    void detectAvailableTimeSources();
 
     template <typename T>
     inline T getDiffToServer() const
