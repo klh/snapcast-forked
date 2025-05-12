@@ -69,13 +69,23 @@ time_sync::TimeSyncInfo TimeProvider::getSyncInfo() const
 
 void TimeProvider::configure(const ClientSettings::TimeSync& settings)
 {
-    LOG(INFO, LOG_TAG) << "Configuring time provider with client settings\n";
+    LOG(INFO, LOG_TAG) << "Configuring time provider with client settings";
     
     // Store settings
     settings_ = settings;
     
     // Verify chrony is available and properly configured
     verifyChrony();
+    
+    // After verifyChrony, check if we're on the same machine as the server
+    // If so, force the time source to be MONOTONIC regardless of other settings
+    if (local_server_) {
+        // Make sure we're using the monotonic clock when running on the same machine as the server
+        if (sync_info_.source != time_sync::TimeSyncSource::MONOTONIC) {
+            LOG(INFO, LOG_TAG) << "Forcing time source to MONOTONIC due to local server detection";
+            setPreferredSource(time_sync::TimeSyncSource::MONOTONIC);
+        }
+    }
 }
 
 void TimeProvider::verifyChrony()
@@ -88,7 +98,9 @@ void TimeProvider::verifyChrony()
     // If on_server flag is set, use that directly and skip detection
     if (settings_.on_server) {
         local_server_ = true;
-        LOG(INFO, LOG_TAG) << "Using local clock as specified by --on-server flag\n";
+        LOG(INFO, LOG_TAG) << "Using local clock as specified by --on-server flag";
+        // Force time source to MONOTONIC when running on the same machine as server
+        setPreferredSource(time_sync::TimeSyncSource::MONOTONIC);
         return; // Local server is fine, no need for chrony
     }
     
@@ -99,7 +111,9 @@ void TimeProvider::verifyChrony()
         char buffer[10];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
             local_server_ = true;
-            LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (pgrep), using local clock\n";
+            LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (pgrep), using local clock";
+            // Force time source to MONOTONIC when running on the same machine as server
+            setPreferredSource(time_sync::TimeSyncSource::MONOTONIC);
             pclose(fp);
             return; // Local server is fine, no need for chrony
         }
@@ -112,7 +126,9 @@ void TimeProvider::verifyChrony()
         char buffer[128];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr) {
             local_server_ = true;
-            LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (ps), using local clock\n";
+            LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine (ps), using local clock";
+            // Force time source to MONOTONIC when running on the same machine as server
+            setPreferredSource(time_sync::TimeSyncSource::MONOTONIC);
             pclose(fp);
             return; // Local server is fine, no need for chrony
         }
@@ -125,12 +141,14 @@ void TimeProvider::verifyChrony()
     // If we're using a fixed time source and it's set to MONOTONIC, honor that setting
     if (settings_.mode == time_sync::SyncMode::fixed && 
         settings_.preferred_source == static_cast<int>(time_sync::TimeSyncSource::MONOTONIC)) {
-        LOG(INFO, LOG_TAG) << "Using monotonic clock as specified by time source preference\n";
+        LOG(INFO, LOG_TAG) << "Using monotonic clock as specified by time source preference";
         local_server_ = true; // Treat as local server to use monotonic clock
+        // Force time source to MONOTONIC
+        setPreferredSource(time_sync::TimeSyncSource::MONOTONIC);
         return;
     }
     
-    LOG(INFO, LOG_TAG) << "No local snapserver detected, will use chrony for time synchronization\n";
+    LOG(INFO, LOG_TAG) << "No local snapserver detected, will use chrony for time synchronization";
     
     // For remote server, chrony is required
     auto& chronyClient = snapclient::ChronyClient::getInstance();
@@ -141,13 +159,13 @@ void TimeProvider::verifyChrony()
         
         // Mark chrony as available
         chrony_available_ = true;
-        LOG(INFO, LOG_TAG) << "Chrony detected and available for time synchronization\n";
+        LOG(INFO, LOG_TAG) << "Chrony detected and available for time synchronization";
         
         // Check if chrony is synchronized
         checkSynchronization();
     } catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Chrony initialization failed: " << e.what() << "\n";
-        LOG(WARNING, LOG_TAG) << "Falling back to system time\n";
+        LOG(ERROR, LOG_TAG) << "Chrony initialization failed: " << e.what();
+        LOG(WARNING, LOG_TAG) << "Falling back to system time";
         chrony_available_ = false;
     }
 }
@@ -163,7 +181,7 @@ void TimeProvider::checkSynchronization()
     auto& chronyClient = snapclient::ChronyClient::getInstance();
     chronyClient.checkSynchronization();
     
-    LOG(DEBUG, LOG_TAG) << "Chrony synchronization verified\n";
+    LOG(DEBUG, LOG_TAG) << "Chrony synchronization verified";
 }
 
 chronos::time_point_clk TimeProvider::getCurrentTime()
@@ -175,7 +193,7 @@ chronos::time_point_clk TimeProvider::getCurrentTime()
         // Log the current time at trace level
         auto duration = now.time_since_epoch();
         auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
-        LOG(TRACE, LOG_TAG) << "getCurrentTime (local): " << microseconds / 1000000 << "." << microseconds % 1000000 << "\n";
+        LOG(TRACE, LOG_TAG) << "getCurrentTime (local): " << microseconds / 1000000 << "." << microseconds % 1000000;
         
         return now;
     }
@@ -190,7 +208,8 @@ chronos::time_point_clk TimeProvider::getCurrentTime()
             checkSynchronization();
             last_check = now_check;
         } catch (const std::exception& e) {
-            LOG(ERROR, LOG_TAG) << "Time synchronization error: " << e.what() << "\n";
+            LOG(ERROR, LOG_TAG) << "Time synchronization error: " << e.what();
+
             throw; // Re-throw to halt playback if synchronization is lost
         }
     }
