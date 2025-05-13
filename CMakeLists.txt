@@ -8,7 +8,7 @@ endif()
 project(
   snapcast
   LANGUAGES CXX
-  VERSION 0.31.100)
+  VERSION 1.00.00)
 
 set(PROJECT_DESCRIPTION "Multiroom client-server audio player")
 set(PROJECT_URL "https://github.com/badaix/snapcast")
@@ -102,6 +102,7 @@ option(BUILD_WITH_AVAHI "Build with AVAHI support" ON)
 option(BUILD_WITH_EXPAT "Build with EXPAT support" ON)
 option(BUILD_WITH_PULSE "Build with PulseAudio support" ON)
 option(BUILD_WITH_JACK "Build with JACK support" ON)
+option(BUILD_WITH_SRT "Build with SRT (Secure Reliable Transport) support" ON)
 
 if(NOT BUILD_SHARED_LIBS AND NOT BUILD_STATIC_LIBS)
   message(
@@ -290,6 +291,19 @@ if(NOT WIN32 AND NOT ANDROID)
     else()
       message(STATUS "vorbisenc not found")
     endif(VORBISENC_FOUND)
+  endif()
+
+  if(BUILD_WITH_SRT)
+    pkg_search_module(SRT srt>=1.4.0)
+    if(SRT_FOUND)
+      add_compile_definitions(HAS_SRT)
+      include_directories(${SRT_INCLUDE_DIRS})
+      list(APPEND SERVER_LIBRARIES ${SRT_LIBRARIES})
+      list(APPEND CLIENT_LIBRARIES ${SRT_LIBRARIES})
+      message(STATUS "SRT found, enabling SRT transport")
+    else()
+      message(STATUS "libsrt not found. Install with: sudo apt install libsrt-openssl-dev srt-tools")
+    endif(SRT_FOUND)
   endif()
 
   if(BUILD_WITH_OPUS)

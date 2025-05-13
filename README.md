@@ -8,6 +8,32 @@
 
 **S**y**n**chronous **a**udio **p**layer
 
+## About This Fork
+
+This is a fork of the original [Snapcast](https://github.com/badaix/snapcast) project with the following changes:
+
+### Chrony Time Synchronization
+
+This fork replaces the original NTP-based time synchronization with chrony, providing several advantages:
+
+- **Higher Accuracy**: Chrony offers more precise time synchronization than standard NTP
+- **Automatic Server Detection**: Clients automatically detect if they're running on the same machine as the server
+- **Local Clock Usage**: Uses local monotonic clock when client and server are on the same machine
+- **Direct Configuration**: Configures chrony directly using chronyc commands without modifying system files
+- **Simplified Setup**: No need for separate NTP configuration
+
+### SRT Transport Protocol
+
+Added SRT (Secure Reliable Transport) as the preferred transport protocol:
+
+- **Improved Reliability**: Better performance on lossy networks like Wi-Fi
+- **Lower Latency**: Configurable latency/reliability trade-offs
+- **Built-in Security**: Optional encryption with passphrase
+- **Fallback Mechanism**: Automatic fallback to WebSocket if SRT connection fails
+- **Bandwidth Control**: Configurable bandwidth and latency settings
+
+### Original Snapcast Project
+
 [![CI](https://github.com/badaix/snapcast/actions/workflows/ci.yml/badge.svg)](https://github.com/badaix/snapcast/actions/workflows/ci.yml)
 [![Github Releases](https://img.shields.io/github/release/badaix/snapcast.svg)](https://github.com/badaix/snapcast/releases)
 [![GitHub Downloads](https://img.shields.io/github/downloads/badaix/snapcast/total)](https://github.com/badaix/snapcast/releases)

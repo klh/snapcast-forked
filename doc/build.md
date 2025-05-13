@@ -34,21 +34,25 @@ Snapcast depends on boost 1.74 or higher. Since it depends on header only boost 
 ### For Debian derivates (e.g. Raspberry Pi OS, Debian, Ubuntu, Mint)
 
 ```sh
-sudo apt-get install build-essential cmake
-sudo apt-get install libasound2-dev libpulse-dev libvorbisidec-dev libvorbis-dev libopus-dev libflac-dev libsoxr-dev alsa-utils libavahi-client-dev avahi-daemon libexpat1-dev chrony
+sudo apt-get install build-essential cmake ninja-build ccache
+sudo apt-get install libasound2-dev libpulse-dev libvorbisidec-dev libvorbis-dev libopus-dev libflac-dev libsoxr-dev alsa-utils libavahi-client-dev avahi-daemon libexpat1-dev chrony libsrt-openssl-dev srt-tools
 ```
+
+Ninja and ccache are optional but highly recommended for faster builds:  
+- **ninja-build**: A faster build system alternative to Make  
+- **ccache**: A compiler cache to speed up repeated builds
 
 ### For Arch derivates
 
 ```sh
-sudo pacman -S base-devel cmake
-sudo pacman -S alsa-lib avahi libvorbis opus-dev flac libsoxr alsa-utils boost expat chrony
+sudo pacman -S base-devel cmake ninja ccache
+sudo pacman -S alsa-lib avahi libvorbis opus-dev flac libsoxr alsa-utils boost expat chrony srt
 ```
 
 ### For Fedora (and probably RHEL, CentOS, & Scientific Linux, but untested)
 
 ```sh
-sudo dnf install @development-tools cmake
+sudo dnf install @development-tools cmake ninja-build ccache
 sudo dnf install alsa-lib-devel avahi-devel gcc-c++ libatomic libvorbis-devel opus-devel pulseaudio-libs-devel flac-devel soxr-devel libstdc++-static expat-devel boost-devel chrony
 ```
 
@@ -80,7 +84,28 @@ mkdir build
 cd build
 ```
 
-Build Snapcast. If you haven't installed boost, but downloaded and extracted the sources, you must point cmake to the boost root directoty, otherwise the part starting with `-DBOOST_ROOT=...` can be omitted.
+Build Snapcast. If you haven't installed boost, but downloaded and extracted the sources, you must point cmake to the boost root directory, otherwise the part starting with `-DBOOST_ROOT=...` can be omitted.
+
+### Standard Build
+
+```sh
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make
+```
+
+### Optimized Build with Ninja and ccache
+
+For faster builds, especially during development, use Ninja and ccache:
+
+```sh
+cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache
+ninja
+```
+
+This configuration:
+- Uses Ninja build system which is faster than Make
+- Leverages ccache to cache compilation results
+- Significantly reduces rebuild times when making small changes
 
 Other flags that can be passed to `cmake`:
 

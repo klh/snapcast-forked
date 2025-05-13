@@ -22,6 +22,7 @@
 // local headers
 #include "common/message/message.hpp"
 #include "common/queue.hpp"
+#include "common/srt/srt_options.hpp"
 #include "control_server.hpp"
 #include "server_settings.hpp"
 #include "stream_session.hpp"
@@ -42,6 +43,10 @@ using boost::asio::ip::tcp;
 using acceptor_ptr = std::unique_ptr<tcp::acceptor>;
 using session_ptr = std::shared_ptr<StreamSession>;
 
+// Forward declaration for SRT server class
+#ifdef HAS_SRT
+class StreamServerSrt;
+#endif
 
 /// Forwars PCM data to the connected clients
 /**
@@ -86,4 +91,8 @@ private:
     ServerSettings settings_;
     Queue<std::shared_ptr<msg::BaseMessage>> messages_;
     StreamMessageReceiver* messageReceiver_;
+    
+#ifdef HAS_SRT
+    std::unique_ptr<StreamServerSrt> srt_server_;
+#endif
 };

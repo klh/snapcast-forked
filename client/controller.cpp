@@ -64,6 +64,7 @@
 #include "common/snap_exception.hpp"
 #include "time_provider.hpp"
 #include "chrony_client.hpp"
+#include "client_connection_srt.hpp"
 
 // standard headers
 #include <algorithm>
@@ -519,6 +520,10 @@ void Controller::start()
 #ifdef HAS_OPENSSL
         else if (settings_.server.protocol == "wss")
             clientConnection_ = make_unique<ClientConnectionWss>(io_context_, ssl_context_, settings_.server);
+#endif
+#ifdef HAS_SRT
+        else if (settings_.server.protocol == "srt")
+            clientConnection_ = make_unique<ClientConnectionSrt>(io_context_, settings_.server);
 #endif
         else
             clientConnection_ = make_unique<ClientConnectionTcp>(io_context_, settings_.server);

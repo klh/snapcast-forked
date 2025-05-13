@@ -110,10 +110,19 @@ int main(int argc, char* argv[])
         conf.add<Value<string>>("", "http.url_prefix", "URL prefix for generating album art URLs", settings.http.url_prefix, &settings.http.url_prefix);
 
         // TCP RPC settings
-        conf.add<Value<bool>>("", "tcp.enabled", "enable TCP Json RPC)", settings.tcp.enabled, &settings.tcp.enabled);
+        conf.add<Value<bool>>("", "tcp.enabled", "enable TCP Json RPC", settings.tcp.enabled, &settings.tcp.enabled);
         conf.add<Value<size_t>>("", "tcp.port", "which port the server should listen on", settings.tcp.port, &settings.tcp.port);
-        auto tcp_bind_to_address = conf.add<Value<string>>("", "tcp.bind_to_address", "address for the server to listen on",
-                                                           settings.tcp.bind_to_address.front(), &settings.tcp.bind_to_address[0]);
+        auto tcp_bind_to_address = conf.add<Value<string>>("", "tcp.bind_to_address", "address for the server to listen on", settings.tcp.bind_to_address.front(), &settings.tcp.bind_to_address[0]);
+        // SRT settings
+#ifdef HAS_SRT
+        conf.add<Value<bool>>("", "srt.enabled", "enable SRT audio streaming", settings.srt.enabled, &settings.srt.enabled);
+        conf.add<Value<size_t>>("", "srt.port", "which port the server should listen on for SRT", settings.srt.port, &settings.srt.port);
+        auto srt_bind_to_address = conf.add<Value<string>>("", "srt.bind_to_address", "address for the SRT server to listen on", settings.srt.bind_to_address.front(), &settings.srt.bind_to_address[0]);
+        conf.add<Value<int>>("", "srt.latency", "SRT latency in milliseconds", settings.srt.latency, &settings.srt.latency);
+        conf.add<Value<bool>>("", "srt.encryption", "enable SRT encryption", settings.srt.encryption, &settings.srt.encryption);
+        conf.add<Value<string>>("", "srt.passphrase", "SRT encryption passphrase", settings.srt.passphrase, &settings.srt.passphrase);
+        conf.add<Value<int>>("", "srt.max_bandwidth", "SRT maximum bandwidth in bytes per second (0 = unlimited)", settings.srt.max_bandwidth, &settings.srt.max_bandwidth);
+#endif
 
         // stream settings
         conf.add<Value<std::filesystem::path>>("", "stream.plugin_dir", "stream plugin directory", settings.stream.plugin_dir, &settings.stream.plugin_dir);
@@ -165,6 +174,15 @@ int main(int argc, char* argv[])
                 for (size_t n = 0; n < http_bind_to_address->count(); ++n)
                     settings.http.bind_to_address.push_back(http_bind_to_address->value(n));
             }
+            
+#ifdef HAS_SRT
+            if (srt_bind_to_address->is_set())
+            {
+                settings.srt.bind_to_address.clear();
+                for (size_t n = 0; n < srt_bind_to_address->count(); ++n)
+                    settings.srt.bind_to_address.push_back(srt_bind_to_address->value(n));
+            }
+#endif
             if (http_ssl_bind_to_address->is_set())
             {
                 settings.http.ssl_bind_to_address.clear();

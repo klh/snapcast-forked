@@ -27,7 +27,15 @@ namespace chrony {
 std::string ChronyBase::execCommand(const std::string& cmd) const {
     std::string result;
     std::array<char, 128> buffer;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+    
+    // Use a custom deleter function to avoid the attributes warning
+    auto pipeDeleter = [](FILE* pipe) {
+        if (pipe) {
+            pclose(pipe);
+        }
+    };
+    
+    std::unique_ptr<FILE, decltype(pipeDeleter)> pipe(popen(cmd.c_str(), "r"), pipeDeleter);
 
     if (!pipe) {
         LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd;

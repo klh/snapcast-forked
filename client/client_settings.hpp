@@ -61,10 +61,21 @@ struct ClientSettings
     /// Server settings
     struct Server
     {
+        /// SRT configuration options
+        struct SrtOptions
+        {
+            /// Latency in milliseconds
+            int latency{120};
+            /// Enable encryption
+            bool encryption{false};
+            /// Encryption passphrase
+            std::string passphrase;
+        };
+
         /// server host or IP address
         std::string host;
-        /// protocol: "tcp", "ws" or "wss"
-        std::string protocol{"tcp"};
+        /// protocol: "tcp", "ws", "wss", or "srt"
+        std::string protocol{"srt"};
         /// server port
         size_t port{1704};
         /// server certificate
@@ -75,10 +86,17 @@ struct ClientSettings
         std::filesystem::path certificate_key;
         /// Password for encrypted key file
         std::string key_password;
+        /// SRT options
+        SrtOptions srt;
         /// Is ssl in use?
         bool isSsl() const
         {
             return (protocol == "wss");
+        }
+        /// Is SRT in use?
+        bool isSrt() const
+        {
+            return (protocol == "srt");
         }
     };
 

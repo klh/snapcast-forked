@@ -1,0 +1,287 @@
+/***
+    This file is part of snapcast
+    Copyright (C) 2014-2025 Johannes Pohl
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+***/
+
+#include "stream_server_srt.hpp"
+#include "common/aixlog.hpp"
+#include "common/message/message.hpp"
+#include "common/snap_exception.hpp"
+#include <arpa/inet.h>
+#include <cerrno>
+#include <cstring>
+
+using namespace std;
+
+StreamServerSrt::StreamServerSrt(boost::asio::io_context& io_context, size_t port, const srt::SrtOptions& options)
+    : StreamServer(io_context), port_(port), options_(options), socket_(SRT_INVALID_SOCK), running_(false)
+{
+}
+
+StreamServerSrt::~StreamServerSrt()
+{
+    stop();
+}
+
+void StreamServerSrt::start()
+{
+    initSocket();
+    acceptConnection();
+}
+
+void StreamServerSrt::stop()
+{
+    running_ = false;
+    
+    if (poll_thread_.joinable())
+    {
+        poll_thread_.join();
+    }
+    
+    // Close all connections
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto socket : connections_)
+        {
+            if (socket != SRT_INVALID_SOCK)
+            {
+                srt_close(socket);
+            }
+        }
+        connections_.clear();
+    }
+    
+    // Close listening socket
+    if (socket_ != SRT_INVALID_SOCK)
+    {
+        srt_close(socket_);
+        socket_ = SRT_INVALID_SOCK;
+    }
+}
+
+void StreamServerSrt::initSocket()
+{
+    // Create socket
+    socket_ = srt_create_socket();
+    if (socket_ == SRT_INVALID_SOCK)
+    {
+        throw SnapException("Failed to create SRT socket: " + string(srt_getlasterror_str()));
+    }
+    
+    // Apply options
+    applySrtOptions(socket_);
+    
+    // Set reuse address
+    int reuse = 1;
+    srt_setsockopt(socket_, 0, SRTO_REUSEADDR, &reuse, sizeof(reuse));
+    
+    // Prepare address
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port_));
+    addr.sin_addr.s_addr = INADDR_ANY;
+    
+    // Bind
+    LOG(INFO, LOG_TAG) << "Binding to port " << port_ << "\n";
+    if (srt_bind(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SRT_ERROR)
+    {
+        throw SnapException("Failed to bind SRT socket: " + string(srt_getlasterror_str()));
+    }
+    
+    // Listen
+    if (srt_listen(socket_, 10) == SRT_ERROR)
+    {
+        throw SnapException("Failed to listen on SRT socket: " + string(srt_getlasterror_str()));
+    }
+    
+    LOG(INFO, LOG_TAG) << "Listening on port " << port_ << "\n";
+}
+
+void StreamServerSrt::acceptConnection()
+{
+    if (!running_)
+    {
+        running_ = true;
+        poll_thread_ = std::thread(&StreamServerSrt::pollThread, this);
+    }
+}
+
+void StreamServerSrt::applySrtOptions(SRTSOCKET socket)
+{
+    // Set latency
+    int latency = options_.latency;
+    srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof(latency));
+    
+    // Set message API mode (for datagram-based transmission)
+    int messageapi = 1;
+    srt_setsockopt(socket, 0, SRTO_MESSAGEAPI, &messageapi, sizeof(messageapi));
+    
+    // Set maximum bandwidth if specified
+    if (options_.max_bandwidth > 0)
+    {
+        int maxbw = options_.max_bandwidth;
+        srt_setsockopt(socket, 0, SRTO_MAXBW, &maxbw, sizeof(maxbw));
+    }
+    
+    // Set encryption if enabled
+    if (options_.encryption && !options_.passphrase.empty())
+    {
+        srt_setsockopt(socket, 0, SRTO_PASSPHRASE, options_.passphrase.c_str(), 
+                      static_cast<int>(options_.passphrase.size()));
+    }
+}
+
+void StreamServerSrt::pollThread()
+{
+    // Create epoll container
+    int epoll_id = srt_epoll_create();
+    if (epoll_id < 0)
+    {
+        LOG(ERROR, LOG_TAG) << "Failed to create epoll: " << srt_getlasterror_str() << "\n";
+        return;
+    }
+    
+    // Add listening socket to epoll
+    int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
+    if (srt_epoll_add_usock(epoll_id, socket_, &events) < 0)
+    {
+        LOG(ERROR, LOG_TAG) << "Failed to add socket to epoll: " << srt_getlasterror_str() << "\n";
+        srt_epoll_release(epoll_id);
+        return;
+    }
+    
+    // Polling loop
+    while (running_)
+    {
+        // Wait for events with timeout
+        const int MAX_SOCKETS = 100;
+        const int TIMEOUT_MS = 100;
+        SRTSOCKET ready_sockets[MAX_SOCKETS];
+        int ready_count = MAX_SOCKETS;
+        
+        int result = srt_epoll_wait(epoll_id, ready_sockets, &ready_count, nullptr, nullptr, TIMEOUT_MS, nullptr, nullptr, nullptr, nullptr);
+        
+        if (!running_)
+        {
+            break;
+        }
+        
+        if (result < 0)
+        {
+            int error = srt_getlasterror(nullptr);
+            if (error == SRT_ETIMEOUT)
+            {
+                // Timeout is normal, continue polling
+                continue;
+            }
+            
+            LOG(ERROR, LOG_TAG) << "Epoll wait failed: " << srt_getlasterror_str() << "\n";
+            break;
+        }
+        
+        if (ready_count <= 0)
+        {
+            continue;
+        }
+        
+        // Process ready sockets
+        for (int i = 0; i < ready_count; ++i)
+        {
+            SRTSOCKET ready_socket = ready_sockets[i];
+            
+            if (ready_socket == socket_)
+            {
+                // Accept new connection
+                sockaddr_in client_addr;
+                int addr_len = sizeof(client_addr);
+                SRTSOCKET client_socket = srt_accept(socket_, reinterpret_cast<sockaddr*>(&client_addr), &addr_len);
+                
+                if (client_socket == SRT_INVALID_SOCK)
+                {
+                    LOG(ERROR, LOG_TAG) << "Failed to accept connection: " << srt_getlasterror_str() << "\n";
+                    continue;
+                }
+                
+                // Get client info
+                char client_ip[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+                uint16_t client_port = ntohs(client_addr.sin_port);
+                
+                LOG(INFO, LOG_TAG) << "New connection from " << client_ip << ":" << client_port << "\n";
+                
+                // Apply options to client socket
+                applySrtOptions(client_socket);
+                
+                // Add client socket to epoll
+                int client_events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
+                if (srt_epoll_add_usock(epoll_id, client_socket, &client_events) < 0)
+                {
+                    LOG(ERROR, LOG_TAG) << "Failed to add client socket to epoll: " << srt_getlasterror_str() << "\n";
+                    srt_close(client_socket);
+                    continue;
+                }
+                
+                // Add to connections list
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    connections_.push_back(client_socket);
+                }
+                
+                // Handle connection in a separate thread
+                boost::asio::post(io_context_, [this, client_socket]() {
+                    handleConnection(client_socket);
+                });
+            }
+            else
+            {
+                // Handle client socket event
+                // This is handled in handleConnection
+            }
+        }
+    }
+    
+    // Clean up
+    srt_epoll_release(epoll_id);
+}
+
+void StreamServerSrt::handleConnection(SRTSOCKET socket)
+{
+    // This method is called in a separate thread for each client connection
+    // Implement the session logic here
+    
+    // Create a session for this connection
+    // TODO: Implement the session logic
+    
+    // For now, just log that we have a connection
+    LOG(INFO, LOG_TAG) << "Handling SRT connection on socket " << socket << "\n";
+    
+    // Keep the connection open until the client disconnects
+    // In a real implementation, this would be handled by the session
+    
+    // When the connection is closed, remove it from the connections list
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = std::find(connections_.begin(), connections_.end(), socket);
+        if (it != connections_.end())
+        {
+            connections_.erase(it);
+        }
+    }
+    
+    // Close the socket
+    srt_close(socket);
+}

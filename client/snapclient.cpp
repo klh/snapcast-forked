@@ -139,12 +139,20 @@ int main(int argc, char** argv)
         OptionParser op("Usage: snapclient [options...] [url]\n\n"
                         " With 'url' = "
 #ifdef HAS_OPENSSL
+#ifdef HAS_SRT
+                        "<tcp|ws|wss|srt>"
+#else
                         "<tcp|ws|wss>"
+#endif
+#else
+#ifdef HAS_SRT
+                        "<tcp|ws|srt>"
 #else
                         "<tcp|ws>"
 #endif
+#endif
                         "://<snapserver host or IP>[:port]\n"
-                        " For example: \"tcp:\\\\192.168.1.1:1704\", or \"ws:\\\\homeserver.local\"\n"
+                        " For example: \"tcp:\\\\192.168.1.1:1704\", \"ws:\\\\homeserver.local\", or \"srt:\\\\192.168.1.1:1706\"\n"
                         " If 'url' is not configured, snapclient tries to resolve the snapserver IP via mDNS\n");
         auto helpSwitch = op.add<Switch>("", "help", "Produce help message");
         auto groffSwitch = op.add<Switch, Attribute::hidden>("", "groff", "Produce groff message");
@@ -160,6 +168,13 @@ int main(int argc, char** argv)
         op.add<Value<string>>("", "key-password", "Key password (for encrypted private key)", settings.server.key_password, &settings.server.key_password);
         auto server_cert_opt =
             op.add<Implicit<std::filesystem::path>>("", "server-cert", "Verify server with CA certificate (PEM format)", "default certificates");
+
+// SRT specific options
+#ifdef HAS_SRT
+        op.add<Value<int>>("", "srt-latency", "SRT latency in milliseconds", 120, &settings.server.srt.latency);
+        op.add<Switch>("", "srt-encryption", "Enable SRT encryption", &settings.server.srt.encryption);
+        op.add<Value<string>>("", "srt-passphrase", "SRT encryption passphrase", "", &settings.server.srt.passphrase);
+#endif
 
 // PCM device specific
 #if defined(HAS_ALSA) || defined(HAS_PULSE) || defined(HAS_WASAPI)

@@ -1,5 +1,36 @@
 # Snapcast changelog
 
+## Version 1.00.00 (Forked)
+
+### Features
+
+- Time Sync: Implemented chrony-based time synchronization for improved accuracy
+  - Server acts as chrony master for precise time synchronization
+  - Client automatically detects if running on same machine as server
+  - Uses local monotonic clock when client and server are on same machine
+  - Configures chrony directly using chronyc commands for remote clients
+
+- Transport: Added SRT (Secure Reliable Transport) as preferred transport protocol
+  - Improved reliability on lossy networks like Wi-Fi
+  - Lower latency with configurable trade-offs
+  - Built-in encryption support with optional passphrase
+  - Automatic fallback to WebSocket if SRT connection fails
+  - Configurable bandwidth and latency settings
+
+- Build System: Enhanced build process
+  - Added Ninja support for faster builds
+  - Integrated ccache for improved build times
+  - Optimized compiler flags for better performance
+  - Improved Debian packaging support
+
+### Bugfixes
+
+- Fixed issues with time synchronization on high-latency networks
+- Resolved buffer underruns when client and server are on same machine
+- Fixed installation path issues in Debian packaging
+
+_KLH <klh@threads.dk>  Tue, 13 May 2025 12:00:00 +0200_
+
 ## Version 0.32.0
 
 ### Features

@@ -41,7 +41,15 @@ static constexpr auto CHRONY_LOG_TAG = "ChronyTracker";
 static std::string execCommand(const std::string& cmd) {
     std::string result;
     std::array<char, 128> buffer;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+    
+    // Use a custom deleter function to avoid the attributes warning
+    auto pipeDeleter = [](FILE* pipe) {
+        if (pipe) {
+            pclose(pipe);
+        }
+    };
+    
+    std::unique_ptr<FILE, decltype(pipeDeleter)> pipe(popen(cmd.c_str(), "r"), pipeDeleter);
 
     if (!pipe) {
         LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd << "\n";
@@ -271,6 +279,9 @@ static TimeValue queryTimeSource(TimeSyncSource source) {
 }
 
 TimeValue getTime(TimeSyncSource specific, const std::vector<TimeSyncSource>& preferred) {
+    // We're not using the preferred parameter in this implementation
+    // but keeping it for API compatibility
+    (void)preferred; // Mark as intentionally unused
     // If a specific time source is requested, try to use it
     if (specific != TimeSyncSource::NONE) {
         try {

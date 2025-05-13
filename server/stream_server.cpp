@@ -23,6 +23,7 @@
 #include "common/aixlog.hpp"
 #include "config.hpp"
 #include "stream_session_tcp.hpp"
+#include "stream_server_srt.hpp"
 
 // 3rd party headers
 
@@ -222,6 +223,7 @@ void StreamServer::handleAccept(tcp::socket socket)
 
 void StreamServer::start()
 {
+    // Create TCP acceptors
     for (const auto& address : settings_.stream.bind_to_address)
     {
         try
@@ -235,6 +237,32 @@ void StreamServer::start()
             LOG(ERROR, LOG_TAG) << "error creating TCP acceptor: " << e.what() << ", code: " << e.code() << "\n";
         }
     }
+    
+    // Start SRT server if enabled
+#ifdef HAS_SRT
+    if (settings_.srt.enabled)
+    {
+        try
+        {
+            LOG(INFO, LOG_TAG) << "Starting SRT server on port: " << settings_.srt.port << "\n";
+            
+            // Create SRT options from server settings
+            srt::SrtOptions options;
+            options.latency = settings_.srt.latency;
+            options.encryption = settings_.srt.encryption;
+            options.passphrase = settings_.srt.passphrase;
+            options.max_bandwidth = settings_.srt.max_bandwidth;
+            
+            // Create and start SRT server
+            srt_server_ = std::make_unique<StreamServerSrt>(io_context_, settings_.srt.port, options);
+            srt_server_->start();
+        }
+        catch (const std::exception& e)
+        {
+            LOG(ERROR, LOG_TAG) << "Error starting SRT server: " << e.what() << "\n";
+        }
+    }
+#endif
 
     startAccept();
 }
@@ -242,10 +270,22 @@ void StreamServer::start()
 
 void StreamServer::stop()
 {
+    // Stop TCP acceptors
     for (auto& acceptor : acceptor_)
         acceptor->cancel();
     acceptor_.clear();
+    
+    // Stop SRT server if it exists
+#ifdef HAS_SRT
+    if (srt_server_)
+    {
+        LOG(INFO, LOG_TAG) << "Stopping SRT server\n";
+        srt_server_->stop();
+        srt_server_.reset();
+    }
+#endif
 
+    // Stop all sessions
     std::lock_guard<std::recursive_mutex> mlock(sessionsMutex_);
     cleanup();
     for (const auto& s : sessions_)

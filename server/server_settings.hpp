@@ -122,6 +122,25 @@ struct ServerSettings
         std::vector<std::string> bind_to_address{{"::"}};
     };
 
+    /// SRT streaming client settings
+    struct Srt
+    {
+        /// enable SRT audio streaming
+        bool enabled{true};
+        /// SRT port
+        size_t port{1706};
+        /// SRT listen addresses
+        std::vector<std::string> bind_to_address{{"::"}};
+        /// Latency in milliseconds
+        int latency{120};
+        /// Enable encryption
+        bool encryption{false};
+        /// Encryption passphrase
+        std::string passphrase;
+        /// Maximum bandwidth in bytes per second (0 = unlimited)
+        int max_bandwidth{0};
+    };
+
     /// Stream settings
     struct Stream
     {
@@ -166,6 +185,7 @@ struct ServerSettings
     std::vector<User> users;         ///< User settings
     Http http;                       ///< HTTP settings
     Tcp tcp;                         ///< TCP settings
+    Srt srt;                         ///< SRT settings
     Stream stream;                   ///< Stream settings
     StreamingClient streamingclient; ///< Client settings
     Logging logging;                 ///< Logging settings
