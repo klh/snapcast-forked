@@ -371,11 +371,19 @@ int main(int argc, char** argv)
                 throw SnapException("Invalid URI - expected format: \"<scheme>://<host or IP>[:port]\", with 'scheme' on of 'tcp' or 'ws'");
 #endif
             }
-            if ((uri.scheme != "tcp") && (uri.scheme != "ws") && (uri.scheme != "wss"))
+            if ((uri.scheme != "tcp") && (uri.scheme != "ws") && (uri.scheme != "wss") && (uri.scheme != "srt"))
 #ifdef HAS_OPENSSL
+#ifdef HAS_SRT
+                throw SnapException("Protocol must be one of 'tcp', 'ws', 'wss' or 'srt'");
+#else
                 throw SnapException("Protocol must be one of 'tcp', 'ws' or 'wss'");
+#endif
+#else
+#ifdef HAS_SRT
+                throw SnapException("Protocol must be one of 'tcp', 'ws' or 'srt'");
 #else
                 throw SnapException("Protocol must be one of 'tcp' or 'ws'");
+#endif
 #endif
             settings.server.host = uri.host;
             settings.server.protocol = uri.scheme;
@@ -390,6 +398,13 @@ int main(int argc, char** argv)
                 settings.server.port = 1788;
 #ifndef HAS_OPENSSL
                 throw SnapException("Snapclient is built without wss support");
+#endif
+            }
+            else if (settings.server.protocol == "srt")
+            {
+                settings.server.port = 1706;
+#ifndef HAS_SRT
+                throw SnapException("Snapclient is built without SRT support");
 #endif
             }
         }

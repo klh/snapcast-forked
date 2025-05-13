@@ -508,25 +508,59 @@ void Controller::start()
                 settings_.server.host = host;
                 settings_.server.port = port;
                 LOG(INFO, LOG_TAG) << "Found server " << settings_.server.host << ":" << settings_.server.port << "\n";
+                
+#ifdef HAS_SRT
+                // Try SRT first (preferred protocol)
+                settings_.server.protocol = "srt";
+                LOG(INFO, LOG_TAG) << "Trying SRT protocol first (preferred)\n";
+                try
+                {
+                    clientConnection_ = make_unique<ClientConnectionSrt>(io_context_, settings_.server);
+                    worker();
+                }
+                catch (const std::exception& e)
+                {
+                    LOG(WARNING, LOG_TAG) << "SRT connection failed: " << e.what() << ", falling back to TCP\n";
+                    settings_.server.protocol = "tcp";
+                    clientConnection_ = make_unique<ClientConnectionTcp>(io_context_, settings_.server);
+                    worker();
+                }
+#else
+                // SRT not available, use TCP
+                settings_.server.protocol = "tcp";
                 clientConnection_ = make_unique<ClientConnectionTcp>(io_context_, settings_.server);
                 worker();
+#endif
             }
         });
     }
     else
     {
+        LOG(INFO, LOG_TAG) << "Connecting using protocol: " << settings_.server.protocol << "\n";
         if (settings_.server.protocol == "ws")
+        {
+            LOG(INFO, LOG_TAG) << "Creating WebSocket connection to " << settings_.server.host << ":" << settings_.server.port << "\n";
             clientConnection_ = make_unique<ClientConnectionWs>(io_context_, settings_.server);
+        }
 #ifdef HAS_OPENSSL
         else if (settings_.server.protocol == "wss")
+        {
+            LOG(INFO, LOG_TAG) << "Creating secure WebSocket connection to " << settings_.server.host << ":" << settings_.server.port << "\n";
             clientConnection_ = make_unique<ClientConnectionWss>(io_context_, ssl_context_, settings_.server);
+        }
 #endif
 #ifdef HAS_SRT
         else if (settings_.server.protocol == "srt")
+        {
+            LOG(INFO, LOG_TAG) << "Creating SRT connection to " << settings_.server.host << ":" << settings_.server.port << "\n";
             clientConnection_ = make_unique<ClientConnectionSrt>(io_context_, settings_.server);
+        }
 #endif
         else
+        {
+            LOG(INFO, LOG_TAG) << "Creating TCP connection to " << settings_.server.host << ":" << settings_.server.port << "\n";
             clientConnection_ = make_unique<ClientConnectionTcp>(io_context_, settings_.server);
+        }
         worker();
     }
 }
