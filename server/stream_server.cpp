@@ -254,7 +254,7 @@ void StreamServer::start()
             options.max_bandwidth = settings_.srt.max_bandwidth;
             
             // Create and start SRT server
-            srt_server_ = std::make_unique<StreamServerSrt>(io_context_, settings_.srt.port, options, this, streamManager_->getStream(settings_.stream.stream));
+            srt_server_ = std::make_unique<StreamServerSrt>(io_context_, settings_.srt.port, options, this, nullptr);
             srt_server_->start();
         }
         catch (const std::exception& e)

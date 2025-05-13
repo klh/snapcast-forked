@@ -27,9 +27,9 @@
 using namespace std;
 
 StreamServerSrt::StreamServerSrt(boost::asio::io_context& io_context, size_t port, const srt::SrtOptions& options,
-                           StreamMessageReceiver* messageReceiver, PcmStream* stream)
+                           StreamMessageReceiver* messageReceiver, PcmStream* /*stream*/)
     : StreamServer(io_context, ServerSettings(), nullptr), port_(port), options_(options), socket_(SRT_INVALID_SOCK), 
-      running_(false), io_context_(io_context), messageReceiver_(messageReceiver), stream_(stream)
+      running_(false), io_context_(io_context), messageReceiver_(messageReceiver)
 {
 }
 
@@ -295,14 +295,19 @@ void StreamServerSrt::handleConnection(SRTSOCKET socket)
         // Create a new StreamSessionSrt and add it to the sessions
         auto session = std::make_shared<StreamSessionSrt>(messageReceiver_, socket);
         
-        // Set the PCM stream
-        session->setPcmStream(stream_);
-        
         // Start the session
         session->start();
         
         // Add session to the sessions list
-        addSession(std::move(session));
+        if (messageReceiver_ != nullptr)
+        {
+            messageReceiver_->addSession(std::move(session));
+            LOG(INFO, LOG_TAG) << "SRT stream session added to message receiver\n";
+        }
+        else
+        {
+            LOG(WARNING, LOG_TAG) << "No message receiver available for SRT session\n";
+        }
         
         LOG(INFO, LOG_TAG) << "SRT stream session started successfully\n";
     }

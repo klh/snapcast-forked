@@ -74,13 +74,10 @@ private:
     /// SRT socket
     SRTSOCKET socket_;
     
-    /// Receive buffer
+    /// Buffer for receiving data
     std::vector<char> buffer_;
     
-    /// Base message for parsing
-    msg::BaseMessage baseMessage_;
-    
-    /// Thread for reading from socket
+    /// Thread for reading data
     std::thread read_thread_;
     
     /// Flag to control the read thread
@@ -89,5 +86,14 @@ private:
     /// Mutex for thread safety
     std::mutex mutex_;
     
-    static constexpr auto LOG_TAG = "StreamSessionSrt";
+    /// Base message for deserialization
+    msg::BaseMessage baseMessage_;
+    
+    /// Client IP address for logging
+    std::string client_ip_;
+    
+    /// Client port for logging
+    uint16_t client_port_;
+    
+    static constexpr auto LOG_TAG = "StreamSessionSRT";
 };

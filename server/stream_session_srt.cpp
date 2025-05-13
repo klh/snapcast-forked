@@ -30,7 +30,8 @@ StreamSessionSrt::StreamSessionSrt(StreamMessageReceiver* messageReceiver, SRTSO
     : StreamSession(boost::asio::any_io_executor(), messageReceiver), 
       socket_(socket), 
       buffer_(1000000), // Using max_size from message.hpp
-      running_(false)
+      running_(false),
+      client_port_(0)
 {
     // Get client info for logging
     sockaddr_in client_addr;
@@ -41,10 +42,11 @@ StreamSessionSrt::StreamSessionSrt(StreamMessageReceiver* messageReceiver, SRTSO
     }
     else
     {
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-        uint16_t client_port = ntohs(client_addr.sin_port);
-        LOG(INFO, LOG_TAG) << "New SRT session from " << client_ip << ":" << client_port << "\n";
+        char client_ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip_str, INET_ADDRSTRLEN);
+        client_ip_ = client_ip_str;
+        client_port_ = ntohs(client_addr.sin_port);
+        LOG(INFO, LOG_TAG) << "New SRT session from " << client_ip_ << ":" << client_port_ << "\n";
     }
 }
 
@@ -58,19 +60,14 @@ void StreamSessionSrt::start()
     if (running_)
         return;
 
-    // Get client info for logging
-    sockaddr_in client_addr;
-    int addr_len = sizeof(client_addr);
-    if (srt_getpeername(socket_, reinterpret_cast<sockaddr*>(&client_addr), &addr_len) == SRT_ERROR)
+    // Log session start with client info
+    if (!client_ip_.empty())
     {
-        LOG(ERROR, LOG_TAG) << "Failed to get peer name: " << srt_getlasterror_str() << "\n";
+        LOG(INFO, LOG_TAG) << "Starting SRT stream session from " << client_ip_ << ":" << client_port_ << " (SRT protocol)\n";
     }
     else
     {
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-        uint16_t client_port = ntohs(client_addr.sin_port);
-        LOG(INFO, LOG_TAG) << "Starting SRT stream session from " << client_ip << ":" << client_port << " (SRT protocol)\n";
+        LOG(INFO, LOG_TAG) << "Starting SRT stream session (client info unavailable)\n";
     }
 
     running_ = true;
