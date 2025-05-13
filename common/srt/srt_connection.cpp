@@ -86,7 +86,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
         srt_close(socket_);
         socket_ = SRT_INVALID_SOCK;
         boost::asio::post(io_context_, [handler]() {
-            handler(boost::asio::error::address_not_available);
+            handler(boost::asio::error::host_not_found);
         });
         return;
     }
