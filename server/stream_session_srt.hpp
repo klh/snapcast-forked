@@ -109,5 +109,5 @@ private:
     /// Client port for logging
     uint16_t client_port_;
     
-    static constexpr auto LOG_TAG = "StreamSessionSRT";
+    static constexpr auto LOG_TAG = "StreamSessionSrt";
 };

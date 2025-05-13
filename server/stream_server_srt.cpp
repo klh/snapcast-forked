@@ -96,6 +96,14 @@ void StreamServerSrt::stop()
 
 void StreamServerSrt::initSocket()
 {
+    // Initialize SRT if not already initialized
+    if (srt_startup() == -1)
+    {
+        throw SnapException("SRT startup failed: " + string(srt_getlasterror_str()));
+    }
+    
+    LOG(INFO, LOG_TAG) << "SRT library initialized successfully";
+    
     // Create socket
     socket_ = srt_create_socket();
     if (socket_ == SRT_INVALID_SOCK)
@@ -103,12 +111,18 @@ void StreamServerSrt::initSocket()
         throw SnapException("Failed to create SRT socket: " + string(srt_getlasterror_str()));
     }
     
+    LOG(INFO, LOG_TAG) << "SRT socket created successfully";
+    
     // Apply options
     applySrtOptions(socket_);
+    LOG(INFO, LOG_TAG) << "SRT options applied to socket";
     
     // Set reuse address
     int reuse = 1;
-    srt_setsockopt(socket_, 0, SRTO_REUSEADDR, &reuse, sizeof(reuse));
+    if (srt_setsockopt(socket_, 0, SRTO_REUSEADDR, &reuse, sizeof(reuse)) == SRT_ERROR)
+    {
+        LOG(WARNING, LOG_TAG) << "Failed to set SRTO_REUSEADDR: " << srt_getlasterror_str();
+    }
     
     // Prepare address
     sockaddr_in addr;
@@ -118,19 +132,22 @@ void StreamServerSrt::initSocket()
     addr.sin_addr.s_addr = INADDR_ANY;
     
     // Bind
-    LOG(INFO, LOG_TAG) << "Binding to port " << port_ << "\n";
+    LOG(INFO, LOG_TAG) << "Binding SRT socket to port " << port_ << "\n";
     if (srt_bind(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SRT_ERROR)
     {
         throw SnapException("Failed to bind SRT socket: " + string(srt_getlasterror_str()));
     }
     
+    LOG(INFO, LOG_TAG) << "SRT socket bound to port " << port_ << " successfully";
+    
     // Listen
+    LOG(INFO, LOG_TAG) << "Starting to listen on SRT socket";
     if (srt_listen(socket_, 10) == SRT_ERROR)
     {
         throw SnapException("Failed to listen on SRT socket: " + string(srt_getlasterror_str()));
     }
     
-    LOG(INFO, LOG_TAG) << "Listening on port " << port_ << " (SRT protocol)\n";
+    LOG(INFO, LOG_TAG) << "SRT server listening on port " << port_ << " (SRT protocol)\n";
 }
 
 void StreamServerSrt::acceptConnection()
@@ -194,6 +211,8 @@ void StreamServerSrt::applySrtOptions(SRTSOCKET socket)
 
 void StreamServerSrt::pollThread()
 {
+    LOG(INFO, LOG_TAG) << "Starting SRT polling thread";
+    
     // Create epoll container
     int epoll_id = srt_epoll_create();
     if (epoll_id < 0)
@@ -201,6 +220,8 @@ void StreamServerSrt::pollThread()
         LOG(ERROR, LOG_TAG) << "Failed to create epoll: " << srt_getlasterror_str() << "\n";
         return;
     }
+    
+    LOG(INFO, LOG_TAG) << "SRT epoll container created successfully";
     
     // Add listening socket to epoll
     int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
@@ -210,6 +231,9 @@ void StreamServerSrt::pollThread()
         srt_epoll_release(epoll_id);
         return;
     }
+    
+    LOG(INFO, LOG_TAG) << "SRT listening socket added to epoll, ready to accept connections";
+    LOG(INFO, LOG_TAG) << "SRT server ready on port " << port_;
     
     // Polling loop
     while (running_)
@@ -224,6 +248,7 @@ void StreamServerSrt::pollThread()
         
         if (!running_)
         {
+            LOG(INFO, LOG_TAG) << "SRT polling thread stopping";
             break;
         }
         
@@ -236,7 +261,7 @@ void StreamServerSrt::pollThread()
                 continue;
             }
             
-            LOG(ERROR, LOG_TAG) << "Epoll wait failed: " << srt_getlasterror_str() << "\n";
+            LOG(ERROR, LOG_TAG) << "SRT epoll wait failed: " << srt_getlasterror_str() << "\n";
             break;
         }
         
@@ -245,6 +270,9 @@ void StreamServerSrt::pollThread()
             continue;
         }
         
+        LOG(INFO, LOG_TAG) << "SRT epoll detected " << ready_count << " ready socket(s)";
+
+        
         // Process ready sockets
         for (int i = 0; i < ready_count; ++i)
         {
@@ -252,6 +280,8 @@ void StreamServerSrt::pollThread()
             
             if (ready_socket == socket_)
             {
+                LOG(INFO, LOG_TAG) << "SRT server detected incoming connection";
+                
                 // Accept new connection
                 sockaddr_in client_addr;
                 int addr_len = sizeof(client_addr);
@@ -259,7 +289,8 @@ void StreamServerSrt::pollThread()
                 
                 if (client_socket == SRT_INVALID_SOCK)
                 {
-                    LOG(ERROR, LOG_TAG) << "Failed to accept connection: " << srt_getlasterror_str() << "\n";
+                    int error = srt_getlasterror(nullptr);
+                    LOG(ERROR, LOG_TAG) << "Failed to accept SRT connection: " << srt_getlasterror_str() << ", error code: " << error << "\n";
                     continue;
                 }
                 
@@ -268,7 +299,7 @@ void StreamServerSrt::pollThread()
                 inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
                 uint16_t client_port = ntohs(client_addr.sin_port);
                 
-                LOG(INFO, LOG_TAG) << "New connection from " << client_ip << ":" << client_port << "\n";
+                LOG(INFO, LOG_TAG) << "Accepted new SRT connection from " << client_ip << ":" << client_port << "\n";
                 
                 // Apply options to client socket
                 applySrtOptions(client_socket);
