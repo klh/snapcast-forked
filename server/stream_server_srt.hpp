@@ -112,5 +112,8 @@ private:
     /// Message receiver for handling client messages
     StreamMessageReceiver* messageReceiver_;
     
+    /// List of active stream sessions
+    std::vector<std::shared_ptr<StreamSession>> sessions_;
+    
     static constexpr auto LOG_TAG = "StreamServerSrt";
 };

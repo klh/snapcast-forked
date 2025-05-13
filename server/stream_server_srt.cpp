@@ -17,6 +17,7 @@
 ***/
 
 #include "stream_server_srt.hpp"
+#include "stream_session_srt.hpp"
 #include "common/aixlog.hpp"
 #include "common/message/message.hpp"
 #include "common/snap_exception.hpp"
@@ -36,6 +37,9 @@ StreamServerSrt::StreamServerSrt(boost::asio::io_context& io_context, size_t por
 StreamServerSrt::~StreamServerSrt()
 {
     stop();
+    
+    // Clear all sessions
+    sessions_.clear();
 }
 
 void StreamServerSrt::start()
@@ -51,6 +55,22 @@ void StreamServerSrt::stop()
     if (poll_thread_.joinable())
     {
         poll_thread_.join();
+    }
+    
+    // Stop all sessions
+    for (auto& session : sessions_)
+    {
+        if (session)
+        {
+            try
+            {
+                session->stop();
+            }
+            catch (const std::exception& e)
+            {
+                LOG(ERROR, LOG_TAG) << "Error stopping session: " << e.what() << "\n";
+            }
+        }
     }
     
     // Close all connections
@@ -299,15 +319,20 @@ void StreamServerSrt::handleConnection(SRTSOCKET socket)
         session->start();
         
         // Add session to the sessions list
-        if (messageReceiver_ != nullptr)
-        {
-            messageReceiver_->addSession(std::move(session));
-            LOG(INFO, LOG_TAG) << "SRT stream session added to message receiver\n";
-        }
-        else
-        {
-            LOG(WARNING, LOG_TAG) << "No message receiver available for SRT session\n";
-        }
+        // Note: We can't directly add the session to the message receiver
+        // because StreamMessageReceiver doesn't have an addSession method.
+        // Instead, we'll let the session handle its own lifecycle.
+        LOG(INFO, LOG_TAG) << "SRT stream session created\n";
+        
+        // Store the session to keep it alive
+        auto session_ptr = session.get();
+        sessions_.push_back(std::move(session));
+        
+        // Clean up expired sessions
+        sessions_.erase(
+            std::remove_if(sessions_.begin(), sessions_.end(),
+                          [](const std::shared_ptr<StreamSession>& s) { return s.use_count() <= 1; }),
+            sessions_.end());
         
         LOG(INFO, LOG_TAG) << "SRT stream session started successfully\n";
     }
