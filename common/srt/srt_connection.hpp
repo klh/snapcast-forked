@@ -138,6 +138,9 @@ protected:
     std::mutex mutex_;
     std::vector<DataHandler> data_handlers_;
     
+    // Shared state for connection monitoring
+    std::shared_ptr<bool> connection_monitor_;
+    
     static constexpr auto LOG_TAG = "SrtConnection";
 };
 

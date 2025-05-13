@@ -56,7 +56,8 @@ SrtConnection::SrtConnection(boost::asio::io_context& io_context, const SrtOptio
       options_(options), 
       socket_(SRT_INVALID_SOCK), 
       connected_(false), 
-      running_(false)
+      running_(false),
+      connection_monitor_(nullptr)
 {
 }
 
@@ -118,36 +119,8 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     SRT_SOCKSTATUS pre_status = srt_getsockstate(socket_);
     LOG(INFO, LOG_TAG) << "SRT socket state before connect: " << getSockStateStr(pre_status);
     
-    // Set blocking mode for initial connection
-    int blocking = 1; // 0 = non-blocking, 1 = blocking
-    if (srt_setsockopt(socket_, 0, SRTO_RCVSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
-        LOG(ERROR, LOG_TAG) << "Failed to set blocking receive mode: " << srt_getlasterror_str();
-    }
-    if (srt_setsockopt(socket_, 0, SRTO_SNDSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
-        LOG(ERROR, LOG_TAG) << "Failed to set blocking send mode: " << srt_getlasterror_str();
-    }
-    
-    // Try to connect
-    LOG(INFO, LOG_TAG) << "Attempting SRT connection to " << host << ":" << port;
-    int connect_result = srt_connect(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-    
-    if (connect_result == SRT_ERROR) {
-        SRT_SOCKSTATUS error_status = srt_getsockstate(socket_);
-        int error_code = srt_getlasterror(nullptr);
-        LOG(ERROR, LOG_TAG) << "Failed to connect to " << host << ":" << port << " with SRT";
-        LOG(ERROR, LOG_TAG) << "SRT error code: " << error_code << ", message: " << srt_getlasterror_str();
-        LOG(ERROR, LOG_TAG) << "SRT socket state: " << getSockStateStr(error_status);
-        
-        srt_close(socket_);
-        socket_ = SRT_INVALID_SOCK;
-        boost::asio::post(io_context_, [handler]() {
-            handler(boost::asio::error::connection_refused);
-        });
-        return;
-    }
-    
-    // After successful connection, set non-blocking mode for data transfer
-    blocking = 0;
+    // Set non-blocking mode for better scalability with multiple clients
+    int blocking = 0; // 0 = non-blocking, 1 = blocking
     if (srt_setsockopt(socket_, 0, SRTO_RCVSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
         LOG(ERROR, LOG_TAG) << "Failed to set non-blocking receive mode: " << srt_getlasterror_str();
     }
@@ -155,29 +128,139 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
         LOG(ERROR, LOG_TAG) << "Failed to set non-blocking send mode: " << srt_getlasterror_str();
     }
     
-    // Check if connection was successful
-    SRT_SOCKSTATUS status = srt_getsockstate(socket_);
-    if (status != SRTS_CONNECTED) {
-        LOG(ERROR, LOG_TAG) << "SRT connection failed - socket state: " << getSockStateStr(status);
-        srt_close(socket_);
-        socket_ = SRT_INVALID_SOCK;
-        boost::asio::post(io_context_, [handler]() {
-            handler(boost::asio::error::connection_refused);
-        });
-        return;
+    // Set connection timeout explicitly
+    int connect_timeout_ms = options_.connection_timeout;
+    if (srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &connect_timeout_ms, sizeof(connect_timeout_ms)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set connection timeout: " << srt_getlasterror_str();
     }
-
-    // Store remote endpoint for later use
-    remote_endpoint_ = host + ":" + to_string(port);
+    LOG(INFO, LOG_TAG) << "Using non-blocking mode with " << connect_timeout_ms << "ms connection timeout";
+    
+    // Try to connect
+    LOG(INFO, LOG_TAG) << "Attempting SRT connection to " << host << ":" << port;
+    int connect_result = srt_connect(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    
+    if (connect_result == SRT_ERROR) {
+        int error_code = srt_getlasterror(nullptr);
+        SRT_SOCKSTATUS error_status = srt_getsockstate(socket_);
+        
+        // In non-blocking mode, EINPROGRESS is expected and not an error
+        if (error_code == SRT_EINPROGRESS) {
+            LOG(INFO, LOG_TAG) << "SRT connection in progress to " << host << ":" << port;
+            
+            // Start polling for connection status
+            startPolling();
+            
+            // Use a shared_ptr to track the connection state across threads
+            auto connection_state = std::make_shared<bool>(true);
+            
+            // Store in class member for cleanup
+            connection_monitor_ = connection_state;
+            
+            // Create a connection monitor to check for connection completion
+            // Use io_context for thread management instead of raw thread
+            boost::asio::post(io_context_, [this, host, port, handler, connection_state]() {
+                const int MAX_WAIT_MS = options_.connection_timeout;
+                const int POLL_INTERVAL_MS = 100;
+                int elapsed_ms = 0;
+                
+                // Use a timer for clean shutdown
+                auto timer = std::make_shared<boost::asio::steady_timer>(io_context_);
+                
+                // Define the polling function
+                std::function<void(const boost::system::error_code&)> check_connection;
+                
+                check_connection = [this, host, port, handler, connection_state, timer, &check_connection, &elapsed_ms, MAX_WAIT_MS, POLL_INTERVAL_MS]
+                    (const boost::system::error_code& ec) {
+                    // Check if we've been asked to stop
+                    if (!*connection_state) {
+                        LOG(INFO, LOG_TAG) << "SRT connection monitor stopped for " << host << ":" << port;
+                        return;
+                    }
+                    
+                    // Check socket state
+                    SRT_SOCKSTATUS status = srt_getsockstate(socket_);
+                    
+                    if (status == SRTS_CONNECTED) {
+                        // Connection successful
+                        LOG(INFO, LOG_TAG) << "SRT connection established to " << host << ":" << port;
+                        remote_endpoint_ = host + ":" + std::to_string(port);
+                        connected_ = true;
+                        *connection_state = false; // Stop monitoring
+                        
+                        boost::asio::post(io_context_, [handler]() {
+                            handler(boost::system::error_code());
+                        });
+                        return;
+                    } else if (status == SRTS_BROKEN || status == SRTS_NONEXIST || status == SRTS_CLOSED) {
+                        // Connection failed
+                        LOG(ERROR, LOG_TAG) << "SRT connection failed to " << host << ":" << port 
+                                          << ", socket state: " << getSockStateStr(status);
+                        
+                        srt_close(socket_);
+                        socket_ = SRT_INVALID_SOCK;
+                        connected_ = false;
+                        *connection_state = false; // Stop monitoring
+                        
+                        boost::asio::post(io_context_, [handler]() {
+                            handler(boost::asio::error::connection_refused);
+                        });
+                        return;
+                    }
+                    
+                    // Check for timeout
+                    elapsed_ms += POLL_INTERVAL_MS;
+                    if (elapsed_ms >= MAX_WAIT_MS) {
+                        // Timeout occurred
+                        LOG(ERROR, LOG_TAG) << "SRT connection timeout to " << host << ":" << port;
+                        
+                        srt_close(socket_);
+                        socket_ = SRT_INVALID_SOCK;
+                        connected_ = false;
+                        *connection_state = false; // Stop monitoring
+                        
+                        boost::asio::post(io_context_, [handler]() {
+                            handler(boost::asio::error::timed_out);
+                        });
+                        return;
+                    }
+                    
+                    // Schedule next check
+                    timer->expires_after(std::chrono::milliseconds(POLL_INTERVAL_MS));
+                    timer->async_wait(check_connection);
+                };
+                
+                // Start the polling
+                timer->expires_after(std::chrono::milliseconds(POLL_INTERVAL_MS));
+                timer->async_wait(check_connection);
+            });
+            
+            return;
+        } else {
+            // Real error occurred
+            LOG(ERROR, LOG_TAG) << "Failed to connect to " << host << ":" << port << " with SRT";
+            LOG(ERROR, LOG_TAG) << "SRT error code: " << error_code << ", message: " << srt_getlasterror_str();
+            LOG(ERROR, LOG_TAG) << "SRT socket state: " << getSockStateStr(error_status);
+            
+            srt_close(socket_);
+            socket_ = SRT_INVALID_SOCK;
+            boost::asio::post(io_context_, [handler]() {
+                handler(boost::asio::error::connection_refused);
+            });
+            return;
+        }
+    }
+    
+    // For blocking mode, we'd reach here only if connection was successful immediately
+    LOG(INFO, LOG_TAG) << "SRT connection established immediately to " << host << ":" << port;
+    remote_endpoint_ = host + ":" + std::to_string(port);
     connected_ = true;
     
-    // Log successful connection
-    SRT_SOCKSTATUS connected_status = srt_getsockstate(socket_);
-    LOG(INFO, LOG_TAG) << "Successfully connected to " << host << ":" << port << " with SRT";
-    LOG(INFO, LOG_TAG) << "SRT socket state: " << getSockStateStr(connected_status);
-
-    // Start polling thread
+    // Start polling for data
     startPolling();
+    
+    // Log successful connection
+    LOG(INFO, LOG_TAG) << "Successfully connected to " << host << ":" << port << " with SRT";
+    LOG(INFO, LOG_TAG) << "SRT socket state: " << getSockStateStr(srt_getsockstate(socket_));
 
     boost::asio::post(io_context_, [handler]() {
         handler(boost::system::error_code());
@@ -186,9 +269,19 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
 
 void SrtConnection::disconnect()
 {
+    // Stop the connection monitor if it exists
+    if (connection_monitor_) {
+        *connection_monitor_ = false;
+        connection_monitor_.reset();
+        LOG(INFO, LOG_TAG) << "Connection monitor stopped";
+    }
+    
+    // Stop the polling thread
     stopPolling();
 
+    // Close the socket
     if (socket_ != SRT_INVALID_SOCK) {
+        LOG(INFO, LOG_TAG) << "Closing SRT socket: " << socket_;
         srt_close(socket_);
         socket_ = SRT_INVALID_SOCK;
     }
