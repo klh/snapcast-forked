@@ -9,7 +9,8 @@ set(CLIENT_SOURCES
     decoder/pcm_decoder.cpp
     decoder/null_decoder.cpp
     player/player.cpp
-    player/file_player.cpp)
+    player/file_player.cpp
+    ${CMAKE_SOURCE_DIR}/common/srt/srt_connection.cpp)
 
 set(CLIENT_LIBRARIES ${CMAKE_THREAD_LIBS_INIT} ${ATOMIC_LIBRARY} common)
 
