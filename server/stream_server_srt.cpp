@@ -356,7 +356,6 @@ void StreamServerSrt::handleConnection(SRTSOCKET socket)
         LOG(INFO, LOG_TAG) << "SRT stream session created\n";
         
         // Store the session to keep it alive
-        auto session_ptr = session.get();
         sessions_.push_back(std::move(session));
         
         // Clean up expired sessions

@@ -95,6 +95,26 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     if (srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &timeout, sizeof(timeout)) == SRT_ERROR) {
         LOG(ERROR, LOG_TAG) << "Failed to set connection timeout: " << srt_getlasterror_str();
     }
+    
+    // Always bind to an ephemeral port for client connections
+    // This ensures it works properly when both client and server are on the same machine
+    sockaddr_in bind_addr;
+    memset(&bind_addr, 0, sizeof(bind_addr));
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = INADDR_ANY;
+    bind_addr.sin_port = htons(0); // Use port 0 to let OS assign an ephemeral port
+    
+    if (srt_bind(socket_, reinterpret_cast<sockaddr*>(&bind_addr), sizeof(bind_addr)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to bind client socket to ephemeral port: " << srt_getlasterror_str();
+        srt_close(socket_);
+        socket_ = SRT_INVALID_SOCK;
+        boost::asio::post(io_context_, [handler]() {
+            handler(boost::asio::error::address_in_use);
+        });
+        return;
+    }
+    
+    LOG(INFO, LOG_TAG) << "SRT socket bound to ephemeral port successfully";
 
     // Prepare address
     sockaddr_in addr;
@@ -143,8 +163,9 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
         int error_code = srt_getlasterror(nullptr);
         SRT_SOCKSTATUS error_status = srt_getsockstate(socket_);
         
-        // In non-blocking mode, EINPROGRESS is expected and not an error
-        if (error_code == SRT_EINPROGRESS) {
+        // In non-blocking mode, EAGAIN is expected and not an error
+        // SRT uses EAGAIN for non-blocking operations that would block
+        if (error_code == SRT_EAGAIN) {
             LOG(INFO, LOG_TAG) << "SRT connection in progress to " << host << ":" << port;
             
             // Start polling for connection status
@@ -170,7 +191,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
                 std::function<void(const boost::system::error_code&)> check_connection;
                 
                 check_connection = [this, host, port, handler, connection_state, timer, &check_connection, &elapsed_ms, MAX_WAIT_MS, POLL_INTERVAL_MS]
-                    (const boost::system::error_code& ec) {
+                    (const boost::system::error_code&) { // Unused parameter
                     // Check if we've been asked to stop
                     if (!*connection_state) {
                         LOG(INFO, LOG_TAG) << "SRT connection monitor stopped for " << host << ":" << port;
