@@ -126,7 +126,7 @@ void StreamSessionSrt::sendAsync(const shared_const_buffer& buffer, const WriteH
                 ec = boost::asio::error::connection_reset;
                 messageReceiver_->onDisconnect(this);
             }
-            else if (error == SRT_EAGAIN)
+            else if (error == SRT_EASYNCRCV || error == SRT_EASYNCSND)
             {
                 // Socket buffer full, would block in non-blocking mode
                 LOG(DEBUG, LOG_TAG) << "Socket buffer full, would block\n";
