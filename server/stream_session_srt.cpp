@@ -27,9 +27,9 @@
 using namespace std;
 
 StreamSessionSrt::StreamSessionSrt(StreamMessageReceiver* messageReceiver, SRTSOCKET socket)
-    : StreamSession(messageReceiver), 
+    : StreamSession(boost::asio::any_io_executor(), messageReceiver), 
       socket_(socket), 
-      buffer_(msg::BaseMessage::getMaxSize()), 
+      buffer_(1000000), // Using max_size from message.hpp
       running_(false)
 {
     // Get client info for logging
@@ -76,7 +76,7 @@ void StreamSessionSrt::stop()
     }
 }
 
-void StreamSessionSrt::send(shared_const_buffer buffer)
+void StreamSessionSrt::send(shared_const_buffer const_buf)
 {
     if (socket_ == SRT_INVALID_SOCK)
         return;
@@ -84,7 +84,8 @@ void StreamSessionSrt::send(shared_const_buffer buffer)
     std::lock_guard<std::mutex> lock(mutex_);
     
     // Send data using SRT
-    int result = srt_send(socket_, buffer.data(), static_cast<int>(buffer.size()));
+    const auto& message = const_buf.message();
+    int result = srt_send(socket_, message.data.data(), static_cast<int>(message.data.size()));
     if (result == SRT_ERROR)
     {
         int error = srt_getlasterror(nullptr);
@@ -181,11 +182,13 @@ void StreamSessionSrt::processReceived(const char* data, size_t size)
 {
     try
     {
-        baseMessage_.deserialize(data, size);
+        // Create a copy of the data since deserialize expects non-const char*
+        std::vector<char> dataCopy(data, data + size);
+        baseMessage_.deserialize(dataCopy.data());
         if (baseMessage_.type != message_type::kTime)
             LOG(DEBUG, LOG_TAG) << "Received message: " << baseMessage_.type << ", size: " << baseMessage_.size << ", id: " << baseMessage_.id << ", refers: " << baseMessage_.refersTo << "\n";
         if (messageReceiver_ != nullptr)
-            messageReceiver_->onMessageReceived(this, baseMessage_, const_cast<char*>(data));
+            messageReceiver_->onMessageReceived(this, baseMessage_, dataCopy.data());
     }
     catch (const std::exception& e)
     {

@@ -197,7 +197,32 @@ void SrtConnection::applySrtOptions(SRTSOCKET socket)
         int maxbw = options_.max_bandwidth;
         srt_setsockopt(socket, 0, SRTO_MAXBW, &maxbw, sizeof(maxbw));
     }
-
+    
+    // === Audio Streaming Optimizations ===
+    
+    // Use live congestion control algorithm optimized for real-time audio
+    srt_setsockopt(socket, 0, SRTO_CONGESTION, "live", 4);
+    
+    // Enable timestamp-based packet dropping for late packets
+    int too_late_ms = 100; // Drop packets that are 100ms too late
+    srt_setsockopt(socket, 0, SRTO_TLPKTDROP, &too_late_ms, sizeof(too_late_ms));
+    
+    // Set receive buffer size appropriate for audio
+    int rcvbuf = 8192 * 8; // 64KB receive buffer
+    srt_setsockopt(socket, 0, SRTO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    
+    // Set stream ID to indicate audio content
+    std::string stream_id = "m=audio,snapcast";
+    srt_setsockopt(socket, 0, SRTO_STREAMID, stream_id.c_str(), static_cast<int>(stream_id.size()));
+    
+    // Enable periodic NAK reports to improve loss recovery
+    int nakrpt = 1;
+    srt_setsockopt(socket, 0, SRTO_NAKREPORT, &nakrpt, sizeof(nakrpt));
+    
+    // Set recovery policy appropriate for audio
+    int recovery_policy = 2; // SRTO_RETRANSMITALGO
+    srt_setsockopt(socket, 0, SRTO_RETRANSMITALGO, &recovery_policy, sizeof(recovery_policy));
+    
     // Set encryption if enabled
     if (options_.encryption && !options_.passphrase.empty()) {
         srt_setsockopt(socket, 0, SRTO_PASSPHRASE, options_.passphrase.c_str(), 
