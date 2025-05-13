@@ -152,8 +152,9 @@ void TimeProvider::verifyChrony()
             checkSynchronization();
         }
         catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Chrony verification failed: " << e.what();
-        chrony_available_ = false;
+            LOG(ERROR, LOG_TAG) << "Chrony verification failed: " << e.what();
+            chrony_available_ = false;
+        }
     }
 }
 
