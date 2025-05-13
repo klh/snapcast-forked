@@ -115,17 +115,43 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     LOG(INFO, LOG_TAG) << "SRT socket state before connect: " << getSockStateStr(pre_status);
     
     // Set connection timeout
-    int timeout_ms = 3000; // 3 seconds
-    srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &timeout_ms, sizeof(timeout_ms));
+    int timeout_ms = 2000; // 2 seconds
+    if (srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &timeout_ms, sizeof(timeout_ms)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set connection timeout: " << srt_getlasterror_str();
+    }
     
-    // Try to connect
-    if (srt_connect(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SRT_ERROR) {
+    // Set non-blocking mode for socket
+    int blocking = 0; // 0 = non-blocking, 1 = blocking
+    if (srt_setsockopt(socket_, 0, SRTO_RCVSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set non-blocking receive mode: " << srt_getlasterror_str();
+    }
+    if (srt_setsockopt(socket_, 0, SRTO_SNDSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set non-blocking send mode: " << srt_getlasterror_str();
+    }
+    
+    // Try to connect with timeout handling
+    LOG(INFO, LOG_TAG) << "Attempting SRT connection to " << host << ":" << port;
+    int connect_result = srt_connect(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    
+    if (connect_result == SRT_ERROR) {
         SRT_SOCKSTATUS status = srt_getsockstate(socket_);
         int error_code = srt_getlasterror(nullptr);
         LOG(ERROR, LOG_TAG) << "Failed to connect to " << host << ":" << port << " with SRT";
         LOG(ERROR, LOG_TAG) << "SRT error code: " << error_code << ", message: " << srt_getlasterror_str();
         LOG(ERROR, LOG_TAG) << "SRT socket state: " << getSockStateStr(status);
         
+        srt_close(socket_);
+        socket_ = SRT_INVALID_SOCK;
+        boost::asio::post(io_context_, [handler]() {
+            handler(boost::asio::error::connection_refused);
+        });
+        return;
+    }
+    
+    // Check if connection was successful
+    SRT_SOCKSTATUS status = srt_getsockstate(socket_);
+    if (status != SRTS_CONNECTED) {
+        LOG(ERROR, LOG_TAG) << "SRT connection failed - socket state: " << getSockStateStr(status);
         srt_close(socket_);
         socket_ = SRT_INVALID_SOCK;
         boost::asio::post(io_context_, [handler]() {
