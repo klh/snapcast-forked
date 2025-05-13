@@ -76,6 +76,14 @@ void TimeProvider::configure(const ClientSettings::TimeSync& settings)
     // Store settings
     settings_ = settings;
     
+    // If on-server flag is set, force local server mode and skip chrony setup
+    if (settings.on_server) {
+        LOG(INFO, LOG_TAG) << "Using local clock as specified by --on-server flag";
+        local_server_.store(true);
+        // Skip chrony verification when on-server flag is set
+        return;
+    }
+    
     // Verify chrony is available and properly configured
     verifyChrony();
 }
@@ -90,6 +98,7 @@ void TimeProvider::verifyChrony()
     if (settings_.on_server) {
         local_server_ = true;
         LOG(INFO, LOG_TAG) << "Using local clock as specified by --on-server flag";
+        LOG(INFO, LOG_TAG) << "Initialized TimeProvider with preferred source: None, mode: fixed";
         return;
     }
     
@@ -100,9 +109,6 @@ void TimeProvider::verifyChrony()
         local_server_ = true;
         return;
     }
-    
-    // Get ChronyClient instance once for all operations
-    auto& chronyClient = snapclient::ChronyClient::getInstance();
     
     // Check for snapserver process using pgrep
     // Use a system call directly since execCommand is protected
@@ -128,15 +134,20 @@ void TimeProvider::verifyChrony()
     
     LOG(INFO, LOG_TAG) << "No local snapserver detected, will use chrony for time synchronization";
     
-    // For remote server, chrony is required
-    try {
-        // Verify chrony is installed
-        chronyClient.verifyChronoInstalled();
-        
-        // Mark chrony as available
-        chrony_available_ = true;
-        LOG(INFO, LOG_TAG) << "Chrony detected and available for time synchronization";
-        
+    // Only access ChronyClient if we're definitely not on the same server
+    if (!local_server_) {
+        // For remote server, chrony is required
+        try {
+            // Get ChronyClient instance
+            auto& chronyClient = snapclient::ChronyClient::getInstance();
+            
+            // Verify chrony is installed
+            chronyClient.verifyChronoInstalled();
+            
+            // Mark chrony as available
+            chrony_available_ = true;
+            LOG(INFO, LOG_TAG) << "Chrony detected and available for time synchronization";
+        }
         // Check if chrony is synchronized
         checkSynchronization();
     }

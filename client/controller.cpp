@@ -410,7 +410,7 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                         LOG(INFO, LOG_TAG) << "Using local monotonic clock for time synchronization";
                         time_source_logged = true;
                     }
-                } else if (status.active_source == time_sync::TimeSyncSource::CHRONY) {
+                } else if (status.active_source == time_sync::TimeSyncSource::CHRONY && !timeProvider.isLocalServer()) {
                     // Only initialize chrony for remote servers
                     std::string server_address = settings_.server.host;
                     initChronyClient(server_address);

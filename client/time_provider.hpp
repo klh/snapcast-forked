@@ -70,6 +70,22 @@ public:
     /// Get current time - uses system time directly when chrony is available
     chronos::time_point_clk getCurrentTime();
     
+    /**
+     * Check if the client is running on the same machine as the server
+     * @return true if client and server are on the same machine
+     */
+    bool isLocalServer() const {
+        return local_server_.load();
+    }
+    
+    /**
+     * Set the local server flag directly
+     * @param is_local true if client and server are on the same machine
+     */
+    void setLocalServer(bool is_local) {
+        local_server_.store(is_local);
+    }
+    
     /// Verify chrony is available and properly configured
     /// @throws std::runtime_error if chrony is not available or not synchronized
     void verifyChrony();
