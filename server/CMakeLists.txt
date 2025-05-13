@@ -14,6 +14,8 @@ set(SERVER_SOURCES
     stream_session_tcp.cpp
     stream_session_ws.cpp
     chrony_master.cpp
+    stream_server_srt.cpp
+    stream_session_srt.cpp
     encoder/encoder_factory.cpp
     encoder/pcm_encoder.cpp
     encoder/null_encoder.cpp
