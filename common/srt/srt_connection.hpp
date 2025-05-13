@@ -139,7 +139,10 @@ protected:
     std::vector<DataHandler> data_handlers_;
     
     // Shared state for connection monitoring
-    std::shared_ptr<bool> connection_monitor_;
+    struct ConnectionState {
+        std::atomic<bool> active{true};
+    };
+    std::shared_ptr<ConnectionState> connection_monitor_;
     
     static constexpr auto LOG_TAG = "SrtConnection";
 };

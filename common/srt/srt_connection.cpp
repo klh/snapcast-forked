@@ -171,15 +171,15 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
             // Start polling for connection status
             startPolling();
             
-            // Use a shared_ptr to track the connection state across threads
-            auto connection_state = std::make_shared<bool>(true);
+            // Create a robust connection state tracker
+            auto state = std::make_shared<ConnectionState>();
             
             // Store in class member for cleanup
-            connection_monitor_ = connection_state;
+            connection_monitor_ = state;
             
             // Create a connection monitor to check for connection completion
             // Use io_context for thread management instead of raw thread
-            boost::asio::post(io_context_, [this, host, port, handler, connection_state]() {
+            boost::asio::post(io_context_, [this, host, port, handler, state]() {
                 const int MAX_WAIT_MS = options_.connection_timeout;
                 const int POLL_INTERVAL_MS = 100;
                 int elapsed_ms = 0;
@@ -190,10 +190,10 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
                 // Define the polling function
                 std::function<void(const boost::system::error_code&)> check_connection;
                 
-                check_connection = [this, host, port, handler, connection_state, timer, &check_connection, &elapsed_ms, MAX_WAIT_MS, POLL_INTERVAL_MS]
+                check_connection = [this, host, port, handler, state, timer, &check_connection, &elapsed_ms, MAX_WAIT_MS, POLL_INTERVAL_MS]
                     (const boost::system::error_code&) { // Unused parameter
                     // Check if we've been asked to stop
-                    if (!*connection_state) {
+                    if (!state->active) {
                         LOG(INFO, LOG_TAG) << "SRT connection monitor stopped for " << host << ":" << port;
                         return;
                     }
@@ -206,7 +206,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
                         LOG(INFO, LOG_TAG) << "SRT connection established to " << host << ":" << port;
                         remote_endpoint_ = host + ":" + std::to_string(port);
                         connected_ = true;
-                        *connection_state = false; // Stop monitoring
+                        state->active = false; // Stop monitoring
                         
                         boost::asio::post(io_context_, [handler]() {
                             handler(boost::system::error_code());
@@ -220,7 +220,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
                         srt_close(socket_);
                         socket_ = SRT_INVALID_SOCK;
                         connected_ = false;
-                        *connection_state = false; // Stop monitoring
+                        state->active = false; // Stop monitoring
                         
                         boost::asio::post(io_context_, [handler]() {
                             handler(boost::asio::error::connection_refused);
@@ -237,7 +237,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
                         srt_close(socket_);
                         socket_ = SRT_INVALID_SOCK;
                         connected_ = false;
-                        *connection_state = false; // Stop monitoring
+                        state->active = false; // Stop monitoring
                         
                         boost::asio::post(io_context_, [handler]() {
                             handler(boost::asio::error::timed_out);
@@ -292,7 +292,7 @@ void SrtConnection::disconnect()
 {
     // Stop the connection monitor if it exists
     if (connection_monitor_) {
-        *connection_monitor_ = false;
+        connection_monitor_->active = false;
         connection_monitor_.reset();
         LOG(INFO, LOG_TAG) << "Connection monitor stopped";
     }
@@ -402,18 +402,19 @@ void SrtConnection::applySrtOptions(SRTSOCKET socket)
     }
     
     // Enable timestamp-based packet dropping for late packets
-    int too_late_ms = 1000; // Drop packets that are 1000ms too late
+    // Use 100ms to match server settings
+    int too_late_ms = 100; // Drop packets that are 100ms too late
     if (srt_setsockopt(socket, 0, SRTO_TLPKTDROP, &too_late_ms, sizeof(too_late_ms)) == SRT_ERROR) {
         LOG(ERROR, LOG_TAG) << "Failed to set SRTO_TLPKTDROP: " << srt_getlasterror_str();
     }
     
     // Set buffer sizes appropriate for audio streaming
-    int rcvbuf = 8192 * 16; // 128KB receive buffer
+    int rcvbuf = 8192 * 8; // 64KB receive buffer (match server)
     if (srt_setsockopt(socket, 0, SRTO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == SRT_ERROR) {
         LOG(ERROR, LOG_TAG) << "Failed to set SRTO_RCVBUF: " << srt_getlasterror_str();
     }
     
-    int sndbuf = 8192 * 16; // 128KB send buffer
+    int sndbuf = 8192 * 8; // 64KB send buffer (match server)
     if (srt_setsockopt(socket, 0, SRTO_SNDBUF, &sndbuf, sizeof(sndbuf)) == SRT_ERROR) {
         LOG(ERROR, LOG_TAG) << "Failed to set SRTO_SNDBUF: " << srt_getlasterror_str();
     }
@@ -422,6 +423,18 @@ void SrtConnection::applySrtOptions(SRTSOCKET socket)
     std::string stream_id = "m=audio,snapcast";
     if (srt_setsockopt(socket, 0, SRTO_STREAMID, stream_id.c_str(), static_cast<int>(stream_id.size())) == SRT_ERROR) {
         LOG(ERROR, LOG_TAG) << "Failed to set SRTO_STREAMID: " << srt_getlasterror_str();
+    }
+    
+    // Enable periodic NAK reports to improve loss recovery (match server)
+    int nakrpt = 1;
+    if (srt_setsockopt(socket, 0, SRTO_NAKREPORT, &nakrpt, sizeof(nakrpt)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_NAKREPORT: " << srt_getlasterror_str();
+    }
+    
+    // Set recovery policy appropriate for audio (match server)
+    int recovery_policy = 2; // SRTO_RETRANSMITALGO
+    if (srt_setsockopt(socket, 0, SRTO_RETRANSMITALGO, &recovery_policy, sizeof(recovery_policy)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_RETRANSMITALGO: " << srt_getlasterror_str();
     }
     
     // === Bandwidth Control ===
@@ -441,7 +454,7 @@ void SrtConnection::applySrtOptions(SRTSOCKET socket)
     // Set encryption if enabled
     if (options_.encryption && !options_.passphrase.empty()) {
         if (srt_setsockopt(socket, 0, SRTO_PASSPHRASE, options_.passphrase.c_str(), 
-                         static_cast<int>(options_.passphrase.size())) == SRT_ERROR) {
+                          static_cast<int>(options_.passphrase.size())) == SRT_ERROR) {
             LOG(ERROR, LOG_TAG) << "Failed to set SRTO_PASSPHRASE: " << srt_getlasterror_str();
         } else {
             LOG(INFO, LOG_TAG) << "SRT encryption enabled with passphrase";

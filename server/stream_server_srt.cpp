@@ -365,21 +365,8 @@ void StreamServerSrt::handleConnection(SRTSOCKET socket)
             sessions_.end());
         
         LOG(INFO, LOG_TAG) << "SRT stream session started successfully\n";
-    }
-    catch (const std::exception& e)
-    {
-        LOG(ERROR, LOG_TAG) << "Error creating SRT session: " << e.what() << "\n";
         
-        // Close the socket
-        srt_close(socket);
-        
-        // Remove from connections list
-        std::lock_guard<std::mutex> lock(mutex_);
-        connections_.erase(std::remove(connections_.begin(), connections_.end(), socket), connections_.end());
-    }
-    
-    // The session will handle the connection until it's closed
-    {
+        // Remove from connections tracking list since the session now owns the socket
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = std::find(connections_.begin(), connections_.end(), socket);
         if (it != connections_.end())
@@ -387,7 +374,17 @@ void StreamServerSrt::handleConnection(SRTSOCKET socket)
             connections_.erase(it);
         }
     }
+    catch (const std::exception& e)
+    {
+        LOG(ERROR, LOG_TAG) << "Error creating SRT session: " << e.what() << "\n";
+        
+        // Close the socket only in case of error
+        srt_close(socket);
+        
+        // Remove from connections list
+        std::lock_guard<std::mutex> lock(mutex_);
+        connections_.erase(std::remove(connections_.begin(), connections_.end(), socket), connections_.end());
+    }
     
-    // Close the socket
-    srt_close(socket);
+    // DO NOT close the socket here - the session now owns it and will close it when done
 }

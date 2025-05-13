@@ -103,41 +103,50 @@ void StreamSessionSrt::sendAsync(const shared_const_buffer& buffer, const WriteH
         return;
     }
 
-    // SRT doesn't support async operations directly, so we'll simulate it
-    // by sending synchronously and then posting the completion handler
-    std::lock_guard<std::mutex> lock(mutex_);
+    // Use a shared_ptr to ensure the buffer stays alive until the operation completes
+    auto buffer_copy = std::make_shared<shared_const_buffer>(buffer);
     
-    // Send data using SRT
-    const auto& message = buffer.message();
-    const size_t data_size = message.data.size();
-    int result = srt_send(socket_, message.data.data(), static_cast<int>(data_size));
-    
-    if (result == SRT_ERROR)
-    {
-        int error = srt_getlasterror(nullptr);
-        boost::system::error_code ec;
+    // Post to a worker thread to avoid blocking the caller
+    boost::asio::post(strand_, [this, buffer_copy, handler]() {
+        // Send data using SRT
+        const auto& message = buffer_copy->message();
+        const size_t data_size = message.data.size();
         
-        if (error == SRT_ECONNLOST)
-        {
-            LOG(INFO, LOG_TAG) << "Connection lost\n";
-            ec = boost::asio::error::connection_reset;
-            messageReceiver_->onDisconnect(this);
-        }
-        else
-        {
-            LOG(ERROR, LOG_TAG) << "Failed to send data: " << srt_getlasterror_str() << "\n";
-            ec = boost::asio::error::connection_aborted;
-        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        int result = srt_send(socket_, message.data.data(), static_cast<int>(data_size));
         
-        boost::asio::post(strand_, [handler, ec]() {
+        if (result == SRT_ERROR)
+        {
+            int error = srt_getlasterror(nullptr);
+            boost::system::error_code ec;
+            
+            if (error == SRT_ECONNLOST)
+            {
+                LOG(INFO, LOG_TAG) << "Connection lost\n";
+                ec = boost::asio::error::connection_reset;
+                messageReceiver_->onDisconnect(this);
+            }
+            else if (error == SRT_EAGAIN)
+            {
+                // Socket buffer full, would block in non-blocking mode
+                LOG(DEBUG, LOG_TAG) << "Socket buffer full, would block\n";
+                ec = boost::asio::error::would_block;
+                
+                // In a real async implementation, we would register for write readiness
+                // and retry later. For now, we'll just report the error.
+            }
+            else
+            {
+                LOG(ERROR, LOG_TAG) << "Failed to send data: " << srt_getlasterror_str() << ", error code: " << error << "\n";
+                ec = boost::asio::error::connection_aborted;
+            }
+            
             handler(ec, 0);
-        });
-        return;
-    }
-    
-    // Success - report the actual number of bytes sent
-    const size_t bytes_sent = static_cast<size_t>(result);
-    boost::asio::post(strand_, [handler, bytes_sent]() {
+            return;
+        }
+        
+        // Success - report the actual number of bytes sent
+        const size_t bytes_sent = static_cast<size_t>(result);
         handler(boost::system::error_code(), bytes_sent);
     });
 }
