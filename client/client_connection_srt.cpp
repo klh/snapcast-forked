@@ -19,6 +19,7 @@
 #include "client_connection_srt.hpp"
 #include "common/aixlog.hpp"
 #include "common/message/message.hpp"
+#include "common/utils.hpp"
 #include "common/snap_exception.hpp"
 #include "common/utils.hpp"
 
@@ -27,7 +28,7 @@ using namespace std;
 static constexpr auto LOG_TAG = "ClientConnSRT";
 
 ClientConnectionSrt::ClientConnectionSrt(boost::asio::io_context& io_context, ClientSettings::Server server)
-    : ClientConnection(io_context, server), buffer_(msg::BaseMessage::getMaxSize())
+    : ClientConnection(io_context, server), buffer_(msg::max_size)
 {
     // Create SRT options from server settings
     srt::SrtOptions options;
@@ -54,7 +55,7 @@ void ClientConnectionSrt::disconnect()
 
 std::string ClientConnectionSrt::getMacAddress()
 {
-    return ::utils::net::getMacAddress(srt_connection_->getRemoteEndpoint());
+    return utils::getMacAddress(srt_connection_->getRemoteEndpoint());
 }
 
 boost::system::error_code ClientConnectionSrt::doConnect(boost::asio::ip::basic_endpoint<boost::asio::ip::tcp> endpoint)
@@ -140,20 +141,15 @@ void ClientConnectionSrt::getNextMessage(const MessageHandler<msg::BaseMessage>&
             
             std::copy(data.begin(), data.end(), buffer_.begin());
             
-            // Parse message
-            auto baseMessage = msg::BaseMessage::parse(buffer_.data(), data.size());
-            if (baseMessage == nullptr)
-            {
-                LOG(ERROR, LOG_TAG) << "Failed to parse message\n";
-                handler(boost::asio::error::invalid_argument, nullptr);
-                return;
-            }
+            // Deserialize the message
+            msg::BaseMessage baseMessage;
+            baseMessage.deserialize(buffer_.data());
             
             // Create message from type
-            auto message = msg::createMessage(baseMessage->type);
+            auto message = msg::Factory::createMessage(baseMessage.type);
             if (message == nullptr)
             {
-                LOG(ERROR, LOG_TAG) << "Failed to create message of type: " << baseMessage->type << "\n";
+                LOG(ERROR, LOG_TAG) << "Failed to create message of type: " << baseMessage.type << "\n";
                 handler(boost::asio::error::invalid_argument, nullptr);
                 return;
             }
