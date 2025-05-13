@@ -88,6 +88,57 @@ void StreamSessionSrt::stop()
     }
 }
 
+std::string StreamSessionSrt::getIP()
+{
+    return client_ip_;
+}
+
+void StreamSessionSrt::sendAsync(const shared_const_buffer& buffer, const WriteHandler& handler)
+{
+    if (socket_ == SRT_INVALID_SOCK)
+    {
+        boost::asio::post(strand_, [handler]() {
+            handler(boost::asio::error::not_connected);
+        });
+        return;
+    }
+
+    // SRT doesn't support async operations directly, so we'll simulate it
+    // by sending synchronously and then posting the completion handler
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    // Send data using SRT
+    const auto& message = buffer.message();
+    int result = srt_send(socket_, message.data.data(), static_cast<int>(message.data.size()));
+    if (result == SRT_ERROR)
+    {
+        int error = srt_getlasterror(nullptr);
+        boost::system::error_code ec;
+        
+        if (error == SRT_ECONNLOST)
+        {
+            LOG(INFO, LOG_TAG) << "Connection lost\n";
+            ec = boost::asio::error::connection_reset;
+            messageReceiver_->onDisconnect(this);
+        }
+        else
+        {
+            LOG(ERROR, LOG_TAG) << "Failed to send data: " << srt_getlasterror_str() << "\n";
+            ec = boost::asio::error::connection_aborted;
+        }
+        
+        boost::asio::post(strand_, [handler, ec]() {
+            handler(ec);
+        });
+        return;
+    }
+    
+    // Success
+    boost::asio::post(strand_, [handler]() {
+        handler(boost::system::error_code());
+    });
+}
+
 void StreamSessionSrt::send(shared_const_buffer const_buf)
 {
     if (socket_ == SRT_INVALID_SOCK)

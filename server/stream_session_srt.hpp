@@ -53,11 +53,25 @@ public:
     void stop() override;
     
     /**
+     * Get the client IP address
+     * @return The client IP address
+     */
+    std::string getIP() override;
+    
+    /**
      * Send a message to the client
      * @param buffer Message to send
      */
     void send(shared_const_buffer const_buf) override;
 
+protected:
+    /**
+     * Send data asynchronously
+     * @param buffer Data to send
+     * @param handler Callback for completion
+     */
+    void sendAsync(const shared_const_buffer& buffer, const WriteHandler& handler) override;
+    
 private:
     /**
      * Read data from the socket
