@@ -147,11 +147,11 @@ void TimeProvider::verifyChrony()
             // Mark chrony as available
             chrony_available_ = true;
             LOG(INFO, LOG_TAG) << "Chrony detected and available for time synchronization";
+            
+            // Check if chrony is synchronized
+            checkSynchronization();
         }
-        // Check if chrony is synchronized
-        checkSynchronization();
-    }
-    catch (const std::exception& e) {
+        catch (const std::exception& e) {
         LOG(ERROR, LOG_TAG) << "Chrony verification failed: " << e.what();
         chrony_available_ = false;
     }
