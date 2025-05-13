@@ -84,12 +84,16 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
         return;
     }
 
-    // Apply options
+    LOG(INFO, LOG_TAG) << "SRT socket created successfully: " << socket_;
+
+    // Apply options before connecting
     applySrtOptions(socket_);
 
     // Set connection timeout
     int timeout = options_.connection_timeout;
-    srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &timeout, sizeof(timeout));
+    if (srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &timeout, sizeof(timeout)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set connection timeout: " << srt_getlasterror_str();
+    }
 
     // Prepare address
     sockaddr_in addr;
@@ -114,22 +118,16 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     SRT_SOCKSTATUS pre_status = srt_getsockstate(socket_);
     LOG(INFO, LOG_TAG) << "SRT socket state before connect: " << getSockStateStr(pre_status);
     
-    // Set connection timeout
-    int timeout_ms = 2000; // 2 seconds
-    if (srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &timeout_ms, sizeof(timeout_ms)) == SRT_ERROR) {
-        LOG(ERROR, LOG_TAG) << "Failed to set connection timeout: " << srt_getlasterror_str();
-    }
-    
-    // Set non-blocking mode for socket
-    int blocking = 0; // 0 = non-blocking, 1 = blocking
+    // Set blocking mode for initial connection
+    int blocking = 1; // 0 = non-blocking, 1 = blocking
     if (srt_setsockopt(socket_, 0, SRTO_RCVSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
-        LOG(ERROR, LOG_TAG) << "Failed to set non-blocking receive mode: " << srt_getlasterror_str();
+        LOG(ERROR, LOG_TAG) << "Failed to set blocking receive mode: " << srt_getlasterror_str();
     }
     if (srt_setsockopt(socket_, 0, SRTO_SNDSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
-        LOG(ERROR, LOG_TAG) << "Failed to set non-blocking send mode: " << srt_getlasterror_str();
+        LOG(ERROR, LOG_TAG) << "Failed to set blocking send mode: " << srt_getlasterror_str();
     }
     
-    // Try to connect with timeout handling
+    // Try to connect
     LOG(INFO, LOG_TAG) << "Attempting SRT connection to " << host << ":" << port;
     int connect_result = srt_connect(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
     
@@ -146,6 +144,15 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
             handler(boost::asio::error::connection_refused);
         });
         return;
+    }
+    
+    // After successful connection, set non-blocking mode for data transfer
+    blocking = 0;
+    if (srt_setsockopt(socket_, 0, SRTO_RCVSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set non-blocking receive mode: " << srt_getlasterror_str();
+    }
+    if (srt_setsockopt(socket_, 0, SRTO_SNDSYN, &blocking, sizeof(blocking)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set non-blocking send mode: " << srt_getlasterror_str();
     }
     
     // Check if connection was successful
@@ -246,50 +253,88 @@ SRTSOCKET SrtConnection::getSocket() const
 
 void SrtConnection::applySrtOptions(SRTSOCKET socket)
 {
-    // Set latency
+    // Log the socket we're configuring
+    LOG(INFO, LOG_TAG) << "Applying SRT options to socket: " << socket;
+    
+    // === Basic Configuration ===
+    
+    // Set latency - this is the most important parameter for audio streaming
     int latency = options_.latency;
-    srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof(latency));
+    if (srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof(latency)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_LATENCY: " << srt_getlasterror_str();
+    } else {
+        LOG(INFO, LOG_TAG) << "Set SRT latency to " << latency << " ms";
+    }
 
     // Set message API mode (for datagram-based transmission)
     int messageapi = 1;
-    srt_setsockopt(socket, 0, SRTO_MESSAGEAPI, &messageapi, sizeof(messageapi));
-
-    // Set maximum bandwidth if specified
-    if (options_.max_bandwidth > 0) {
-        int maxbw = options_.max_bandwidth;
-        srt_setsockopt(socket, 0, SRTO_MAXBW, &maxbw, sizeof(maxbw));
+    if (srt_setsockopt(socket, 0, SRTO_MESSAGEAPI, &messageapi, sizeof(messageapi)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_MESSAGEAPI: " << srt_getlasterror_str();
     }
     
-    // === Audio Streaming Optimizations ===
+    // === Connection Configuration ===
+    
+    // Set connection reuse for faster reconnection
+    int reuse = 1;
+    if (srt_setsockopt(socket, 0, SRTO_REUSEADDR, &reuse, sizeof(reuse)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_REUSEADDR: " << srt_getlasterror_str();
+    }
+    
+    // === Performance Tuning ===
     
     // Use live congestion control algorithm optimized for real-time audio
-    srt_setsockopt(socket, 0, SRTO_CONGESTION, "live", 4);
+    if (srt_setsockopt(socket, 0, SRTO_CONGESTION, "live", 4) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_CONGESTION: " << srt_getlasterror_str();
+    }
     
     // Enable timestamp-based packet dropping for late packets
-    int too_late_ms = 100; // Drop packets that are 100ms too late
-    srt_setsockopt(socket, 0, SRTO_TLPKTDROP, &too_late_ms, sizeof(too_late_ms));
+    int too_late_ms = 1000; // Drop packets that are 1000ms too late
+    if (srt_setsockopt(socket, 0, SRTO_TLPKTDROP, &too_late_ms, sizeof(too_late_ms)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_TLPKTDROP: " << srt_getlasterror_str();
+    }
     
-    // Set receive buffer size appropriate for audio
-    int rcvbuf = 8192 * 8; // 64KB receive buffer
-    srt_setsockopt(socket, 0, SRTO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    // Set buffer sizes appropriate for audio streaming
+    int rcvbuf = 8192 * 16; // 128KB receive buffer
+    if (srt_setsockopt(socket, 0, SRTO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_RCVBUF: " << srt_getlasterror_str();
+    }
+    
+    int sndbuf = 8192 * 16; // 128KB send buffer
+    if (srt_setsockopt(socket, 0, SRTO_SNDBUF, &sndbuf, sizeof(sndbuf)) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_SNDBUF: " << srt_getlasterror_str();
+    }
     
     // Set stream ID to indicate audio content
     std::string stream_id = "m=audio,snapcast";
-    srt_setsockopt(socket, 0, SRTO_STREAMID, stream_id.c_str(), static_cast<int>(stream_id.size()));
+    if (srt_setsockopt(socket, 0, SRTO_STREAMID, stream_id.c_str(), static_cast<int>(stream_id.size())) == SRT_ERROR) {
+        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_STREAMID: " << srt_getlasterror_str();
+    }
     
-    // Enable periodic NAK reports to improve loss recovery
-    int nakrpt = 1;
-    srt_setsockopt(socket, 0, SRTO_NAKREPORT, &nakrpt, sizeof(nakrpt));
+    // === Bandwidth Control ===
     
-    // Set recovery policy appropriate for audio
-    int recovery_policy = 2; // SRTO_RETRANSMITALGO
-    srt_setsockopt(socket, 0, SRTO_RETRANSMITALGO, &recovery_policy, sizeof(recovery_policy));
+    // Set maximum bandwidth if specified
+    if (options_.max_bandwidth > 0) {
+        int maxbw = options_.max_bandwidth;
+        if (srt_setsockopt(socket, 0, SRTO_MAXBW, &maxbw, sizeof(maxbw)) == SRT_ERROR) {
+            LOG(ERROR, LOG_TAG) << "Failed to set SRTO_MAXBW: " << srt_getlasterror_str();
+        } else {
+            LOG(INFO, LOG_TAG) << "Set SRT max bandwidth to " << maxbw << " bytes/sec";
+        }
+    }
+    
+    // === Security ===
     
     // Set encryption if enabled
     if (options_.encryption && !options_.passphrase.empty()) {
-        srt_setsockopt(socket, 0, SRTO_PASSPHRASE, options_.passphrase.c_str(), 
-                      static_cast<int>(options_.passphrase.size()));
+        if (srt_setsockopt(socket, 0, SRTO_PASSPHRASE, options_.passphrase.c_str(), 
+                         static_cast<int>(options_.passphrase.size())) == SRT_ERROR) {
+            LOG(ERROR, LOG_TAG) << "Failed to set SRTO_PASSPHRASE: " << srt_getlasterror_str();
+        } else {
+            LOG(INFO, LOG_TAG) << "SRT encryption enabled with passphrase";
+        }
     }
+    
+    LOG(INFO, LOG_TAG) << "SRT socket options applied successfully";
 }
 
 void SrtConnection::startPolling()
