@@ -205,8 +205,13 @@ void StreamServerSrt::applySrtOptions(SRTSOCKET socket)
     srt_setsockopt(socket, 0, SRTO_NAKREPORT, &nakrpt, sizeof(nakrpt));
     
     // Set recovery policy appropriate for audio
+    // This option might not be available in all SRT versions, so handle errors gracefully
+    #ifdef SRTO_RETRANSMITALGO
     int recovery_policy = 2; // SRTO_RETRANSMITALGO
-    srt_setsockopt(socket, 0, SRTO_RETRANSMITALGO, &recovery_policy, sizeof(recovery_policy));
+    if (srt_setsockopt(socket, 0, SRTO_RETRANSMITALGO, &recovery_policy, sizeof(recovery_policy)) == SRT_ERROR) {
+        LOG(WARNING, LOG_TAG) << "SRTO_RETRANSMITALGO not supported in this SRT version, skipping";
+    }
+    #endif
 }
 
 void StreamServerSrt::pollThread()

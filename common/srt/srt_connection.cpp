@@ -432,10 +432,13 @@ void SrtConnection::applySrtOptions(SRTSOCKET socket)
     }
     
     // Set recovery policy appropriate for audio (match server)
+    // This option might not be available in all SRT versions, so handle errors gracefully
+    #ifdef SRTO_RETRANSMITALGO
     int recovery_policy = 2; // SRTO_RETRANSMITALGO
     if (srt_setsockopt(socket, 0, SRTO_RETRANSMITALGO, &recovery_policy, sizeof(recovery_policy)) == SRT_ERROR) {
-        LOG(ERROR, LOG_TAG) << "Failed to set SRTO_RETRANSMITALGO: " << srt_getlasterror_str();
+        LOG(WARNING, LOG_TAG) << "SRTO_RETRANSMITALGO not supported in this SRT version, skipping";
     }
+    #endif
     
     // === Bandwidth Control ===
     
