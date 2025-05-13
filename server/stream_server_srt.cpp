@@ -27,7 +27,7 @@
 using namespace std;
 
 StreamServerSrt::StreamServerSrt(boost::asio::io_context& io_context, size_t port, const srt::SrtOptions& options)
-    : StreamServer(io_context), port_(port), options_(options), socket_(SRT_INVALID_SOCK), running_(false)
+    : StreamServer(io_context, ServerSettings(), nullptr), port_(port), options_(options), socket_(SRT_INVALID_SOCK), running_(false), io_context_(io_context)
 {
 }
 

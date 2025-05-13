@@ -100,6 +100,9 @@ private:
     /// Mutex for thread safety
     std::mutex mutex_;
     
+    /// Reference to the io_context
+    boost::asio::io_context& io_context_;
+    
     /// List of active connections
     std::vector<SRTSOCKET> connections_;
     
