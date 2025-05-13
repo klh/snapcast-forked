@@ -92,9 +92,24 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     }
 
     // Connect
-    LOG(INFO, LOG_TAG) << "Connecting to " << host << ":" << port;
+    LOG(INFO, LOG_TAG) << "Connecting to " << host << ":" << port << " with SRT";
+    
+    // Get SRT socket state before connect
+    SRT_SOCKSTATUS pre_status = srt_getsockstate(socket_);
+    LOG(INFO, LOG_TAG) << "SRT socket state before connect: " << srt_getsockstate_str(pre_status);
+    
+    // Set connection timeout
+    int timeout_ms = 3000; // 3 seconds
+    srt_setsockopt(socket_, 0, SRTO_CONNTIMEO, &timeout_ms, sizeof(timeout_ms));
+    
+    // Try to connect
     if (srt_connect(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SRT_ERROR) {
-        LOG(ERROR, LOG_TAG) << "Failed to connect: " << srt_getlasterror_str();
+        SRT_SOCKSTATUS status = srt_getsockstate(socket_);
+        int error_code = srt_getlasterror(nullptr);
+        LOG(ERROR, LOG_TAG) << "Failed to connect to " << host << ":" << port << " with SRT";
+        LOG(ERROR, LOG_TAG) << "SRT error code: " << error_code << ", message: " << srt_getlasterror_str();
+        LOG(ERROR, LOG_TAG) << "SRT socket state: " << srt_getsockstate_str(status);
+        
         srt_close(socket_);
         socket_ = SRT_INVALID_SOCK;
         boost::asio::post(io_context_, [handler]() {
@@ -106,6 +121,11 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     // Store remote endpoint for later use
     remote_endpoint_ = host + ":" + to_string(port);
     connected_ = true;
+    
+    // Log successful connection
+    SRT_SOCKSTATUS status = srt_getsockstate(socket_);
+    LOG(INFO, LOG_TAG) << "Successfully connected to " << host << ":" << port << " with SRT";
+    LOG(INFO, LOG_TAG) << "SRT socket state: " << srt_getsockstate_str(status);
 
     // Start polling thread
     startPolling();

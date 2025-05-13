@@ -512,7 +512,9 @@ void Controller::start()
 #ifdef HAS_SRT
                 // Try SRT first (preferred protocol)
                 settings_.server.protocol = "srt";
-                LOG(INFO, LOG_TAG) << "Trying SRT protocol first (preferred)\n";
+                // SRT uses port 1706 instead of the standard port 1704
+                settings_.server.port = 1706;
+                LOG(INFO, LOG_TAG) << "Trying SRT protocol first (preferred) on port " << settings_.server.port << "\n";
                 try
                 {
                     clientConnection_ = make_unique<ClientConnectionSrt>(io_context_, settings_.server);
@@ -522,6 +524,9 @@ void Controller::start()
                 {
                     LOG(WARNING, LOG_TAG) << "SRT connection failed: " << e.what() << ", falling back to TCP\n";
                     settings_.server.protocol = "tcp";
+                    // Restore the original TCP port (1704)
+                    settings_.server.port = 1704;
+                    LOG(INFO, LOG_TAG) << "Falling back to TCP on port " << settings_.server.port << "\n";
                     clientConnection_ = make_unique<ClientConnectionTcp>(io_context_, settings_.server);
                     worker();
                 }
