@@ -206,7 +206,7 @@ std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() con
     return std::nullopt;
 }
 
-std::string ChronyClient::getStatus() const override {
+std::string ChronyClient::getStatus() const {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (shouldSkipSetup(false)) {
