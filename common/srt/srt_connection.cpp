@@ -134,11 +134,11 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     int connect_result = srt_connect(socket_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
     
     if (connect_result == SRT_ERROR) {
-        SRT_SOCKSTATUS status = srt_getsockstate(socket_);
+        SRT_SOCKSTATUS error_status = srt_getsockstate(socket_);
         int error_code = srt_getlasterror(nullptr);
         LOG(ERROR, LOG_TAG) << "Failed to connect to " << host << ":" << port << " with SRT";
         LOG(ERROR, LOG_TAG) << "SRT error code: " << error_code << ", message: " << srt_getlasterror_str();
-        LOG(ERROR, LOG_TAG) << "SRT socket state: " << getSockStateStr(status);
+        LOG(ERROR, LOG_TAG) << "SRT socket state: " << getSockStateStr(error_status);
         
         srt_close(socket_);
         socket_ = SRT_INVALID_SOCK;
