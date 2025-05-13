@@ -56,7 +56,7 @@ void ClientConnectionSrt::disconnect()
 std::string ClientConnectionSrt::getMacAddress()
 {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    std::string result = getMacAddress(sock);
+    std::string result = ::getMacAddress(sock);
     close(sock);
     return result;
 }
@@ -157,8 +157,7 @@ void ClientConnectionSrt::getNextMessage(const MessageHandler<msg::BaseMessage>&
                 return;
             }
             
-            // Deserialize message
-            message->deserialize(buffer_.data(), data.size());
+            // The message is already deserialized by the factory
             
             // Handle message
             messageReceived(std::move(message), handler);
