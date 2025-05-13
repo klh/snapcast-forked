@@ -145,6 +145,7 @@ bool ChronyMaster::start() {
         LOG(ERROR, LOG_TAG) << "Error starting chrony master: " << e.what();
         return false;
     }
+}
 
 void ChronyMaster::stop() {
     std::lock_guard<std::mutex> lock(mutex_);

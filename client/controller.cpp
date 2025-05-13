@@ -401,10 +401,8 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                 
                 // Only initialize chrony if we're not running on the same machine as the server
                 auto& timeProvider = TimeProvider::getInstance();
-                auto syncInfo = timeProvider.getSyncInfo();
                 // Only log time source once during initialization
                 static bool time_source_logged = false;
-                static bool warned_about_monotonic = false;
                 
                 // Simple check: if --on-server flag is set, skip chrony completely
                 if (settings_.time_sync.on_server) {
@@ -656,6 +654,7 @@ void Controller::initChronyClient(const std::string& server_address)
         chrony_client.checkSynchronization();
         
         // Only log this if we're actually using chrony
+        auto& timeProvider = TimeProvider::getInstance();
         if (timeProvider.getSyncInfo().source == time_sync::TimeSyncSource::CHRONY) {
             LOG(INFO, LOG_TAG) << "Using chrony for time synchronization";
         }

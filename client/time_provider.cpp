@@ -105,7 +105,21 @@ void TimeProvider::verifyChrony()
     auto& chronyClient = snapclient::ChronyClient::getInstance();
     
     // Check for snapserver process using pgrep
-    std::string result = chronyClient.execCommand("pgrep snapserver");
+    // Use a system call directly since execCommand is protected
+    FILE* pipe = popen("pgrep snapserver", "r");
+    if (!pipe) {
+        LOG(ERROR, LOG_TAG) << "Failed to execute pgrep command";
+        return;
+    }
+    
+    char buffer[128];
+    std::string result = "";
+    while (!feof(pipe)) {
+        if (fgets(buffer, 128, pipe) != nullptr) {
+            result += buffer;
+        }
+    }
+    pclose(pipe);
     if (!result.empty()) {
         local_server_ = true;
         LOG(INFO, LOG_TAG) << "Detected snapserver running on local machine, using local clock";
