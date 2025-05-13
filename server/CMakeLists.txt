@@ -130,7 +130,11 @@ if(ANDROID)
   target_link_libraries(libsnapserver.so ${SERVER_LIBRARIES} log)
 else()
   add_executable(snapserver ${SERVER_SOURCES})
-  target_link_libraries(snapserver ${SERVER_LIBRARIES})
+  if(SRT_FOUND)
+    target_link_libraries(snapserver ${SERVER_LIBRARIES} srt)
+  else()
+    target_link_libraries(snapserver ${SERVER_LIBRARIES})
+  endif()
 
   install(
     TARGETS snapserver
