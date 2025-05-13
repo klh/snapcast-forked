@@ -23,6 +23,22 @@ using namespace std;
 
 namespace srt {
 
+// Helper function to convert SRT socket state to string
+static std::string getSockStateStr(SRT_SOCKSTATUS state) {
+    switch (state) {
+        case SRTS_INIT: return "INIT";
+        case SRTS_OPENED: return "OPENED";
+        case SRTS_LISTENING: return "LISTENING";
+        case SRTS_CONNECTING: return "CONNECTING";
+        case SRTS_CONNECTED: return "CONNECTED";
+        case SRTS_BROKEN: return "BROKEN";
+        case SRTS_CLOSING: return "CLOSING";
+        case SRTS_CLOSED: return "CLOSED";
+        case SRTS_NONEXIST: return "NONEXIST";
+        default: return "UNKNOWN(" + std::to_string(state) + ")";
+    }
+}
+
 // Static initialization of SRT library
 static struct SrtInit {
     SrtInit() {
@@ -96,7 +112,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     
     // Get SRT socket state before connect
     SRT_SOCKSTATUS pre_status = srt_getsockstate(socket_);
-    LOG(INFO, LOG_TAG) << "SRT socket state before connect: " << srt_getsockstate_str(pre_status);
+    LOG(INFO, LOG_TAG) << "SRT socket state before connect: " << getSockStateStr(pre_status);
     
     // Set connection timeout
     int timeout_ms = 3000; // 3 seconds
@@ -108,7 +124,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
         int error_code = srt_getlasterror(nullptr);
         LOG(ERROR, LOG_TAG) << "Failed to connect to " << host << ":" << port << " with SRT";
         LOG(ERROR, LOG_TAG) << "SRT error code: " << error_code << ", message: " << srt_getlasterror_str();
-        LOG(ERROR, LOG_TAG) << "SRT socket state: " << srt_getsockstate_str(status);
+        LOG(ERROR, LOG_TAG) << "SRT socket state: " << getSockStateStr(status);
         
         srt_close(socket_);
         socket_ = SRT_INVALID_SOCK;
@@ -125,7 +141,7 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     // Log successful connection
     SRT_SOCKSTATUS status = srt_getsockstate(socket_);
     LOG(INFO, LOG_TAG) << "Successfully connected to " << host << ":" << port << " with SRT";
-    LOG(INFO, LOG_TAG) << "SRT socket state: " << srt_getsockstate_str(status);
+    LOG(INFO, LOG_TAG) << "SRT socket state: " << getSockStateStr(status);
 
     // Start polling thread
     startPolling();
