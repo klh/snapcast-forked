@@ -1,5 +1,6 @@
 set(CLIENT_SOURCES
     client_connection.cpp
+    client_connection_srt.cpp
     controller.cpp
     snapclient.cpp
     stream.cpp
