@@ -98,7 +98,7 @@ void StreamSessionSrt::sendAsync(const shared_const_buffer& buffer, const WriteH
     if (socket_ == SRT_INVALID_SOCK)
     {
         boost::asio::post(strand_, [handler]() {
-            handler(boost::asio::error::not_connected);
+            handler(boost::asio::error::not_connected, 0);
         });
         return;
     }
@@ -109,7 +109,9 @@ void StreamSessionSrt::sendAsync(const shared_const_buffer& buffer, const WriteH
     
     // Send data using SRT
     const auto& message = buffer.message();
-    int result = srt_send(socket_, message.data.data(), static_cast<int>(message.data.size()));
+    const size_t data_size = message.data.size();
+    int result = srt_send(socket_, message.data.data(), static_cast<int>(data_size));
+    
     if (result == SRT_ERROR)
     {
         int error = srt_getlasterror(nullptr);
@@ -128,14 +130,15 @@ void StreamSessionSrt::sendAsync(const shared_const_buffer& buffer, const WriteH
         }
         
         boost::asio::post(strand_, [handler, ec]() {
-            handler(ec);
+            handler(ec, 0);
         });
         return;
     }
     
-    // Success
-    boost::asio::post(strand_, [handler]() {
-        handler(boost::system::error_code());
+    // Success - report the actual number of bytes sent
+    const size_t bytes_sent = static_cast<size_t>(result);
+    boost::asio::post(strand_, [handler, bytes_sent]() {
+        handler(boost::system::error_code(), bytes_sent);
     });
 }
 
