@@ -165,9 +165,9 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
     connected_ = true;
     
     // Log successful connection
-    SRT_SOCKSTATUS status = srt_getsockstate(socket_);
+    SRT_SOCKSTATUS connected_status = srt_getsockstate(socket_);
     LOG(INFO, LOG_TAG) << "Successfully connected to " << host << ":" << port << " with SRT";
-    LOG(INFO, LOG_TAG) << "SRT socket state: " << getSockStateStr(status);
+    LOG(INFO, LOG_TAG) << "SRT socket state: " << getSockStateStr(connected_status);
 
     // Start polling thread
     startPolling();
