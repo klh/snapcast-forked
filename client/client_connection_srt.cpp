@@ -55,7 +55,10 @@ void ClientConnectionSrt::disconnect()
 
 std::string ClientConnectionSrt::getMacAddress()
 {
-    return utils::getMacAddress(srt_connection_->getRemoteEndpoint());
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    std::string result = getMacAddress(sock);
+    close(sock);
+    return result;
 }
 
 boost::system::error_code ClientConnectionSrt::doConnect(boost::asio::ip::basic_endpoint<boost::asio::ip::tcp> endpoint)
@@ -146,7 +149,7 @@ void ClientConnectionSrt::getNextMessage(const MessageHandler<msg::BaseMessage>&
             baseMessage.deserialize(buffer_.data());
             
             // Create message from type
-            auto message = msg::Factory::createMessage(baseMessage.type);
+            auto message = msg::factory::createMessage(baseMessage, buffer_.data());
             if (message == nullptr)
             {
                 LOG(ERROR, LOG_TAG) << "Failed to create message of type: " << baseMessage.type << "\n";
