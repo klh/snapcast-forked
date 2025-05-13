@@ -163,9 +163,9 @@ void SrtConnection::connect(const std::string& host, uint16_t port, const Result
         int error_code = srt_getlasterror(nullptr);
         SRT_SOCKSTATUS error_status = srt_getsockstate(socket_);
         
-        // In non-blocking mode, EAGAIN is expected and not an error
-        // SRT uses EAGAIN for non-blocking operations that would block
-        if (error_code == SRT_EAGAIN) {
+        // In non-blocking mode, EASYNCRCV/EASYNCSND is expected and not an error
+        // SRT uses these for non-blocking operations that would block
+        if (error_code == SRT_EASYNCRCV || error_code == SRT_EASYNCSND) {
             LOG(INFO, LOG_TAG) << "SRT connection in progress to " << host << ":" << port;
             
             // Start polling for connection status
