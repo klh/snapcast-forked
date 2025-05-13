@@ -66,6 +66,13 @@ public:
      */
     virtual std::string getStatus() const;
     
+    /**
+     * Execute a chronyc command with the -a flag
+     * @param command The chronyc command to execute
+     * @return True if command succeeded, false otherwise
+     */
+    bool executeChronycCommand(const std::string& command);
+    
 protected:
     /**
      * Execute a command and capture its output

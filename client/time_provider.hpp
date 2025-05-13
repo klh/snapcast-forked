@@ -67,10 +67,6 @@ public:
     /// Get current time sync information
     time_sync::TimeSyncInfo getSyncInfo() const;
     
-    /// Set preferred time source
-    /// @param source Preferred time source to use
-    void setPreferredSource(time_sync::TimeSyncSource source);
-    
     /// Get current time - uses system time directly when chrony is available
     chronos::time_point_clk getCurrentTime();
     
@@ -123,7 +119,4 @@ private:
     
     // Is server on same machine (no need for chrony in this case)
     std::atomic<bool> local_server_{false};
-    
-    // Current time sync information
-    time_sync::TimeSyncInfo sync_info_;
 };

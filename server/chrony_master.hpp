@@ -23,8 +23,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
-#include <vector>
 
 namespace snapserver {
 
@@ -32,11 +30,7 @@ namespace snapserver {
  * Manages a chrony master server for time synchronization
  * 
  * This class configures and manages a chrony server instance that acts as a 
- * master clock for Snapcast clients. It provides methods to:
- * 1. Start/stop the chrony server
- * 2. Configure the server for optimal audio synchronization
- * 3. Monitor the server status
- * 4. Allow clients to connect and synchronize
+ * master clock for Snapcast clients using direct chronyc commands.
  */
 class ChronyMaster : public chrony::ChronyBase {
 public:
@@ -71,29 +65,11 @@ public:
      */
     bool isRunning() const;
     
-    // Methods inherited from ChronyBase:
-    // - verifyChronoInstalled()
-    // - checkSynchronization()
-    // - getTrackingInfo()
-    // - getStatus()
-    
     /**
      * Get the current server status
      * @return A string containing server status information
      */
     std::string getStatus() const override;
-    
-    /**
-     * Get the list of connected clients
-     * @return Vector of client IP addresses
-     */
-    std::vector<std::string> getClients() const;
-    
-    /**
-     * Get the server configuration
-     * @return Configuration as a string
-     */
-    std::string getConfig() const;
     
     /**
      * Get the server address for clients to connect to
@@ -107,34 +83,15 @@ public:
      */
     uint16_t getPort() const;
     
-    /**
-     * Get detailed tracking information
-     * @return Chrony tracking information
-     */
-    std::optional<time_sync::ChronyTrackingInfo> getTrackingInfo() const override;
-    
 private:
     ChronyMaster() = default;
-    ~ChronyMaster();
+    ChronyMaster(ChronyMaster const&) = delete;
+    void operator=(ChronyMaster const&) = delete;
     
-    ChronyMaster(const ChronyMaster&) = delete;
-    ChronyMaster& operator=(const ChronyMaster&) = delete;
-    
-    // Check if chrony is installed
-    bool isChronyInstalled() const;
-    
-    // No configuration file or monitor thread - using direct chronyc commands
-    
-    std::string config_dir_;
-    std::string config_file_;
-    uint16_t port_{323};
     std::string server_address_;
+    uint16_t port_{323};
     
     std::atomic<bool> running_{false};
-    mutable std::mutex mutex_;
-    
-    // Process ID of the chrony server
-    pid_t chrony_pid_{-1};
 };
 
 } // namespace snapserver

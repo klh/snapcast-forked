@@ -380,7 +380,7 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                 // Create a simple status for logging purposes only
                 status.active_source = time_sync::TimeSyncSource::MONOTONIC;
                 status.active_source_info = syncInfo;
-                status.protocol_version = response->version;
+                status.protocol_version = static_cast<time_sync::ProtocolVersion>(response->version);
             } else {
                 // Process the time response using the standardized helper
                 status = time_sync::processTimeResponse(response.get(), diff_ms);
@@ -402,42 +402,22 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                 // Only initialize chrony if we're not running on the same machine as the server
                 auto& timeProvider = TimeProvider::getInstance();
                 auto syncInfo = timeProvider.getSyncInfo();
-                
                 // Only log time source once during initialization
                 static bool time_source_logged = false;
                 static bool warned_about_monotonic = false;
                 
-                // Check if we're running on the same machine as the server
-                bool is_local_server = (syncInfo.source == time_sync::TimeSyncSource::MONOTONIC || settings_.time_sync.on_server);
-                
-                if (is_local_server) {
+                // Simple check: if --on-server flag is set, skip chrony completely
+                if (settings_.time_sync.on_server) {
                     // Already using monotonic clock, don't initialize chrony
                     if (!time_source_logged) {
-                        LOG(WARN, LOG_TAG) << "Using MONOTONIC time source (local server)";
+                        LOG(WARNING, LOG_TAG) << "Using MONOTONIC time source (local server)";
                         LOG(INFO, LOG_TAG) << "Using local monotonic clock for time synchronization";
                         time_source_logged = true;
                     }
-                    
-                    // Skip chrony initialization completely
-                    if (!warned_about_monotonic && status.active_source == time_sync::TimeSyncSource::CHRONY) {
-                        LOG(DEBUG, LOG_TAG) << "Server is using chrony, but we're using monotonic clock due to local server detection";
-                        warned_about_monotonic = true;
-                    }
-                    
-                    // Force the time source to be MONOTONIC
-                    if (syncInfo.source != time_sync::TimeSyncSource::MONOTONIC) {
-                        LOG(INFO, LOG_TAG) << "Forcing time source to MONOTONIC due to local server detection";
-                        timeProvider.setPreferredSource(time_sync::TimeSyncSource::MONOTONIC);
-                    }
                 } else if (status.active_source == time_sync::TimeSyncSource::CHRONY) {
-                    // Only initialize chrony for remote servers and if we're not using the monotonic clock
-                    auto syncInfo = timeProvider.getSyncInfo();
-                    if (syncInfo.source != time_sync::TimeSyncSource::MONOTONIC && !settings_.time_sync.on_server) {
-                        std::string server_address = settings_.server.host;
-                        initChronyClient(server_address);
-                    } else {
-                        LOG(DEBUG, LOG_TAG) << "Skipping chrony initialization as we're using the monotonic clock";
-                    }
+                    // Only initialize chrony for remote servers
+                    std::string server_address = settings_.server.host;
+                    initChronyClient(server_address);
                 }
             } else {
                 // For V1 protocol, just log that we're using a legacy protocol
@@ -642,27 +622,16 @@ void Controller::initChronyClient(const std::string& server_address)
 {
     static bool initialized = false;
     
-    // Only initialize once
+    // Don't initialize twice
     if (initialized) {
         return;
     }
     
-    // Get current time sync info from TimeProvider
-    auto& timeProvider = TimeProvider::getInstance();
-    auto sync_info = timeProvider.getSyncInfo();
-    
-    // Skip chrony initialization completely if we're using the monotonic clock
-    // This happens when we're running on the same machine as the server
-    if (sync_info.source == time_sync::TimeSyncSource::MONOTONIC || settings_.time_sync.on_server) {
-        LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as TimeProvider is using local clock";
+    // Simple check: if --on-server flag is set, skip chrony completely
+    if (settings_.time_sync.on_server) {
+        LOG(NOTICE, LOG_TAG) << "Skipping chrony setup as --on-server flag is set";
+        LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: Monotonic";
         initialized = true;
-        
-        // Ensure we don't try to use chrony later
-        static bool monotonic_logged = false;
-        if (!monotonic_logged) {
-            LOG(INFO, LOG_TAG) << "Time synchronization complete, using time source: Monotonic";
-            monotonic_logged = true;
-        }
         return; // Exit early - don't even attempt chrony initialization
     }
     

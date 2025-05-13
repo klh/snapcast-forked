@@ -30,13 +30,19 @@ std::string ChronyBase::execCommand(const std::string& cmd) const {
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
 
     if (!pipe) {
-        LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd << "\n";
+        LOG(WARNING, LOG_TAG) << "Failed to execute command: " << cmd;
         return "";
     }
 
     while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
         result += buffer.data();
     }
+    
+    // Trim trailing newlines for cleaner output
+    if (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+        result.erase(result.find_last_not_of("\n\r") + 1);
+    }
+    
     return result;
 }
 
@@ -52,45 +58,84 @@ void ChronyBase::verifyChronoInstalled() {
     LOG(INFO, LOG_TAG) << "Chrony is installed\n";
 }
 
+bool ChronyBase::executeChronycCommand(const std::string& command) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    // Construct the full command with the -a flag
+    std::string full_command = "chronyc -a '" + command + "'";
+    
+    // Add retry logic
+    const int MAX_RETRIES = 3;
+    const int RETRY_DELAY_MS = 500;
+    
+    for (int retry = 0; retry < MAX_RETRIES; ++retry) {
+        if (retry > 0) {
+            LOG(INFO, LOG_TAG) << "Retrying chronyc command (attempt " << retry + 1 << " of " << MAX_RETRIES << ")";
+            std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_DELAY_MS));
+        }
+        
+        LOG(INFO, LOG_TAG) << "Executing chronyc command: " << command;
+        
+        // Execute the command
+        std::string result = execCommand(full_command);
+        
+        // Check if command succeeded (should see 200 OK response)
+        if (result.find("200 OK") != std::string::npos) {
+            LOG(INFO, LOG_TAG) << "Chronyc command succeeded";
+            return true;
+        }
+        
+        // Special case: some commands don't return 200 OK but still succeed
+        if (command == "burst" || command.find("local") == 0) {
+            // For these commands, absence of an error message indicates success
+            if (result.find("error") == std::string::npos && 
+                result.find("Error") == std::string::npos) {
+                LOG(INFO, LOG_TAG) << "Chronyc command likely succeeded (no error message)";
+                return true;
+            }
+        }
+        
+        LOG(WARNING, LOG_TAG) << "Chronyc command failed (attempt " << retry + 1 << " of " << MAX_RETRIES << ")";
+    }
+    
+    LOG(ERROR, LOG_TAG) << "Chronyc command failed after " << MAX_RETRIES << " attempts: " << command;
+    return false;
+}
+
 bool ChronyBase::isSynchronized() const {
-    // Get tracking information from chronyc
-    std::string tracking = execCommand("chronyc -c tracking 2>/dev/null");
-    if (tracking.empty()) {
-        LOG(WARNING, LOG_TAG) << "Failed to get chrony tracking information\n";
+    try {
+        // Use chronyc tracking to check synchronization status
+        std::string result = execCommand("chronyc -c tracking 2>/dev/null");
+        if (result.empty()) {
+            return false;
+        }
+        
+        // Parse CSV output
+        // Format: <Ref ID>,<IP>,<Stratum>,<Ref time>,<System time>,<Last offset>,<RMS offset>,<Frequency>,<Residual freq>,<Skew>,<Root delay>,<Root dispersion>,<Update interval>,<Leap status>
+        std::istringstream iss(result);
+        std::string line;
+        if (std::getline(iss, line)) {
+            // Check if we have at least 3 fields (Ref ID, IP, Stratum)
+            size_t comma1 = line.find(',');
+            if (comma1 != std::string::npos) {
+                size_t comma2 = line.find(',', comma1 + 1);
+                if (comma2 != std::string::npos) {
+                    // Extract stratum
+                    std::string stratum_str = line.substr(comma1 + 1, comma2 - comma1 - 1);
+                    try {
+                        int stratum = std::stoi(stratum_str);
+                        // Stratum 0-15 indicates synchronized, 16 is unsynchronized
+                        return stratum >= 0 && stratum < 16;
+                    } catch (...) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return false;
+    } catch (...) {
         return false;
     }
-    
-    // Parse the tracking information
-    // The 5th field in CSV output contains the stratum (lower is better)
-    // Stratum 0 = reference clock, 1 = primary server, 2+ = secondary servers
-    std::istringstream iss(tracking);
-    std::string field;
-    int field_count = 0;
-    int stratum = 16; // Default to highest (worst) stratum
-    
-    // Parse CSV format
-    while (std::getline(iss, field, ',')) {
-        field_count++;
-        if (field_count == 5) {
-            try {
-                stratum = std::stoi(field);
-            } catch (...) {
-                // Failed to parse stratum
-            }
-            break;
-        }
-    }
-    
-    // Consider synchronized if stratum is 0-10 (0-2 is good, 3-10 is acceptable)
-    bool synchronized = (stratum >= 0 && stratum <= 10);
-    
-    if (synchronized) {
-        LOG(DEBUG, LOG_TAG) << "Chrony is synchronized with stratum " << stratum << "\n";
-    } else {
-        LOG(WARNING, LOG_TAG) << "Chrony is not properly synchronized (stratum " << stratum << ")\n";
-    }
-    
-    return synchronized;
 }
 
 void ChronyBase::checkSynchronization() {

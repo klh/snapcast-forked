@@ -23,7 +23,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 
 namespace snapclient {
 
@@ -33,9 +32,8 @@ namespace snapclient {
  * This class configures the local chrony client to synchronize with the Snapcast server's
  * chrony master, ensuring precise time synchronization for audio playback.
  * 
- * Chrony is a hard dependency for Snapcast - the system will not function without it.
- * Once established, chrony connections are maintained throughout the client's lifetime,
- * even when the client disconnects from the server, to ensure consistent synchronization.
+ * When the --on-server flag is set, chrony setup is skipped entirely as the client
+ * will use the local monotonic clock for time synchronization.
  */
 class ChronyClient : public chrony::ChronyBase {
 public:
@@ -61,21 +59,17 @@ public:
     bool connectToServer(const std::string& server_address, uint16_t port = 323);
     
     /**
-     * Disconnect client from the server
-     * Note: This only updates internal state - chrony remains running and connected to the server
-     * to maintain time synchronization throughout the client's lifetime
-     */
-    void disconnect();
-    
-    /**
      * Check if connected to the Snapcast server's chrony master
      * @return True if connected
      */
     bool isConnected() const;
     
-    // Methods inherited from ChronyBase:
-    // - isChronyInstalled()
-    // - isSynchronized()
+    /**
+     * Check if chrony setup should be skipped
+     * @param on_server Flag indicating if client is running on the same machine as server
+     * @return True if chrony setup should be skipped
+     */
+    bool shouldSkipSetup(bool on_server) const;
     
     /**
      * Get chrony tracking information
@@ -99,23 +93,17 @@ public:
      * Get the port we're connected to
      * @return Server port
      */
-    uint16_t getPort() const;
+    uint16_t getServerPort() const;
+    
+    /**
+     * Destructor
+     */
+    ~ChronyClient() = default;
     
 private:
     ChronyClient() = default;
-    ~ChronyClient();
-    
-    ChronyClient(const ChronyClient&) = delete;
-    ChronyClient& operator=(const ChronyClient&) = delete;
-    
-    // Configure chrony client using chronyc -a commands
-    bool configureClient(const std::string& server_address, uint16_t port);
-    
-    // Check if chrony is installed
-    bool isChronyInstalled() const;
-    
-    // Start chrony client
-    bool startClient();
+    ChronyClient(ChronyClient const&) = delete;
+    void operator=(ChronyClient const&) = delete;
     
     // Stop chrony client
     void stopClient();
@@ -123,7 +111,6 @@ private:
     // No monitoring thread - assume chrony works if configured properly
     
     std::string config_dir_;
-    std::string config_file_;
     std::string server_address_;
     std::string resolved_address_; // Stores the resolved IP address from hostname
     uint16_t port_{323};
