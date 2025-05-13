@@ -53,13 +53,13 @@ sudo pacman -S alsa-lib avahi libvorbis opus-dev flac libsoxr alsa-utils boost e
 
 ```sh
 sudo dnf install @development-tools cmake ninja-build ccache
-sudo dnf install alsa-lib-devel avahi-devel gcc-c++ libatomic libvorbis-devel opus-devel pulseaudio-libs-devel flac-devel soxr-devel libstdc++-static expat-devel boost-devel chrony
+sudo dnf install alsa-lib-devel avahi-devel gcc-c++ libatomic libvorbis-devel opus-devel pulseaudio-libs-devel flac-devel soxr-devel libstdc++-static expat-devel boost-devel chrony srt-devel
 ```
 
 ### For FreeBSD
 
 ```sh
-sudo pkg install alsa-lib pulseaudio cmake gmake gcc bash avahi libogg libvorbis opus flac libsoxr pkgconfig chrony
+sudo pkg install alsa-lib pulseaudio cmake gmake gcc bash avahi libogg libvorbis opus flac libsoxr pkgconfig chrony srt
 ```
 
 ### For macOS
@@ -71,7 +71,7 @@ sudo pkg install alsa-lib pulseaudio cmake gmake gcc bash avahi libogg libvorbis
  3. Install the required libs
 
 ```sh
-brew install pkgconfig libsoxr expat flac libvorbis boost opus chrony
+brew install pkgconfig libsoxr expat flac libvorbis boost opus chrony srt
 ```
 
 ## Build Snapclient and Snapserver

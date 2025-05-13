@@ -131,6 +131,25 @@ Available stream sources are:
 - [tcp](doc/configuration.md#tcp-server): receives audio from a TCP socket, can act as client or server
 - [meta](doc/configuration.md#meta): read and mix audio from other stream sources
 
+### Transport Protocols
+
+Snapcast supports multiple transport protocols for streaming audio data between server and clients:
+
+| Protocol | Description | Requirements |
+| -------- | ----------- | ------------ |
+| SRT      | Secure Reliable Transport (default) | libSRT ≥ 1.4.0 |
+| WebSocket | WebSocket over TCP/IP (fallback) | None |
+| TCP      | Plain TCP/IP (legacy) | None |
+
+SRT is the recommended transport protocol as it provides:
+- Better performance on lossy networks (Wi-Fi, Internet)
+- Lower latency with configurable reliability trade-offs
+- Built-in encryption and security
+- Automatic congestion control and bandwidth management
+- Optimized for real-time audio streaming
+
+See [SRT Transport](doc/srt_transport.md) for detailed configuration options.
+
 ### Client
 
 The client will use as audio backend the system's low level audio API to have the best possible control and most precise timing to achieve perfectly synced playback.

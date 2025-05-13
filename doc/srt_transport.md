@@ -91,13 +91,49 @@ Snapcast will use SRT by default when available, but will fall back to WebSocket
 - `ws://server_ip:1780` - Use WebSocket protocol
 - `wss://server_ip:1788` - Use secure WebSocket protocol
 
+## Audio-Specific Optimizations
+
+Snapcast implements several audio-specific optimizations for SRT streaming:
+
+1. **Live Congestion Control**: Uses the "live" congestion control algorithm optimized for real-time audio streaming with minimal latency.
+
+2. **Timestamp-Based Packet Dropping**: Automatically drops packets that arrive too late (more than 100ms after their expected playback time), preventing buffer bloat and maintaining audio synchronization.
+
+3. **Optimized Buffer Sizes**: Uses carefully tuned buffer sizes (64KB) specifically optimized for audio streaming, balancing between having enough data to handle jitter and keeping latency low.
+
+4. **Audio Stream Identification**: Identifies the stream as audio content using the stream ID "m=audio,snapcast", which can help network equipment properly prioritize the traffic.
+
+5. **Enhanced Loss Recovery**: Enables periodic NAK (Negative Acknowledgment) reports to improve packet loss recovery without waiting for timeouts.
+
+6. **Audio-Optimized Recovery Policy**: Uses a recovery algorithm specifically tuned for real-time audio streaming.
+
 ## Dependencies
 
-To use SRT transport, you need to install the SRT library:
+To use SRT transport, you need to install the SRT library (version 1.4.0 or higher):
 
 ### Debian/Ubuntu
 ```bash
 sudo apt install libsrt-openssl-dev srt-tools
+```
+
+### Fedora/RHEL/CentOS
+```bash
+sudo dnf install srt-devel
+```
+
+### Arch Linux
+```bash
+sudo pacman -S srt
+```
+
+### FreeBSD
+```bash
+sudo pkg install srt
+```
+
+### macOS
+```bash
+brew install srt
 ```
 
 ### Arch Linux
