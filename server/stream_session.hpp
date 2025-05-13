@@ -146,7 +146,7 @@ public:
     void send(msg::message_ptr message);
 
     /// Sends a message to the client (asynchronous)
-    void send(shared_const_buffer const_buf);
+    virtual void send(shared_const_buffer const_buf);
 
     /// Max playout latency. No need to send PCM data that is older than bufferMs
     void setBufferMs(size_t bufferMs);

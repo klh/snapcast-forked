@@ -56,7 +56,7 @@ public:
      * Send a message to the client
      * @param buffer Message to send
      */
-    void send(shared_const_buffer const_buf);
+    void send(shared_const_buffer const_buf) override;
 
 private:
     /**
