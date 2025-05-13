@@ -399,8 +399,6 @@ void Controller::sendTimeSyncMessage(int quick_syncs)
                                    << time_sync::timeSourceToString(status.active_source) 
                                    << ", quality: " << status.active_source_info.quality << "\n";
                 
-                // Only initialize chrony if we're not running on the same machine as the server
-                auto& timeProvider = TimeProvider::getInstance();
                 // Only log time source once during initialization
                 static bool time_source_logged = false;
                 

@@ -157,35 +157,7 @@ bool ChronyClient::isConnected() const {
     return connected_;
 }
 
-std::string ChronyClient::getStatus() const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (shouldSkipSetup(false)) {
-        return "Using local monotonic clock (server on same machine)";
-    }
-    
-    if (!connected_) {
-        return "Not connected to a chrony server";
-    }
-    
-    try {
-        std::stringstream status;
-        status << "Connected to chrony server at " << server_address_;
-        
-        // Get additional status from base class if available
-        std::string baseStatus = chrony::ChronyBase::getStatus();
-        if (!baseStatus.empty()) {
-            status << "\n" << baseStatus;
-        }
-        
-        return status.str();
-    }
-    catch (const std::exception& e) {
-        LOG(ERROR, LOG_TAG) << "Error getting status: " << e.what();
-        return "Connected to chrony server at " + server_address_ + " (status unavailable)";
-    }
-}
+// Implementation moved to the override method below
 
 std::string ChronyClient::getServerAddress() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -222,7 +194,8 @@ std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() con
         if (std::getline(iss, line)) {
             // Create and return tracking info
             time_sync::ChronyTrackingInfo info;
-            info.raw_data = line;
+            // Store the line in ref_source since raw_data doesn't exist
+            info.ref_source = line;
             return info;
         }
     }
@@ -233,7 +206,9 @@ std::optional<time_sync::ChronyTrackingInfo> ChronyClient::getTrackingInfo() con
     return std::nullopt;
 }
 
-std::string ChronyClient::getStatus() const {
+std::string ChronyClient::getStatus() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
     if (shouldSkipSetup(false)) {
         return "Using local monotonic clock (server on same machine)";
     }
@@ -242,7 +217,22 @@ std::string ChronyClient::getStatus() const {
         return "Not connected to a chrony server";
     }
     
-    return "Connected to chrony server at " + server_address_;
+    try {
+        std::stringstream status;
+        status << "Connected to chrony server at " << server_address_;
+        
+        // Get additional status from base class if available
+        std::string baseStatus = chrony::ChronyBase::getStatus();
+        if (!baseStatus.empty()) {
+            status << "\n" << baseStatus;
+        }
+        
+        return status.str();
+    }
+    catch (const std::exception& e) {
+        LOG(ERROR, LOG_TAG) << "Error getting status: " << e.what();
+        return "Connected to chrony server at " + server_address_ + " (status unavailable)";
+    }
 }
 
 bool ChronyClient::configureClient(const std::string& server_address, uint16_t /* port */) {

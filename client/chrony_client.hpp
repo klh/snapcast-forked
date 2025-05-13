@@ -98,12 +98,23 @@ public:
     /**
      * Destructor
      */
-    ~ChronyClient() = default;
+    ~ChronyClient();
+    
+    /**
+     * Disconnect from the chrony server
+     */
+    void disconnect();
     
 private:
     ChronyClient() = default;
     ChronyClient(ChronyClient const&) = delete;
     void operator=(ChronyClient const&) = delete;
+    
+    // Configure chrony client with server settings
+    bool configureClient(const std::string& server_address, uint16_t port);
+    
+    // Start chrony client
+    bool startClient();
     
     // Stop chrony client
     void stopClient();
