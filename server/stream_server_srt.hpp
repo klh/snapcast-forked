@@ -36,8 +36,11 @@ public:
      * @param io_context The boost::asio::io_context to use
      * @param port The port to listen on
      * @param options SRT connection options
+     * @param messageReceiver Receiver for stream messages
+     * @param streamManager Stream manager for PCM streams
      */
-    StreamServerSrt(boost::asio::io_context& io_context, size_t port, const srt::SrtOptions& options);
+    StreamServerSrt(boost::asio::io_context& io_context, size_t port, const srt::SrtOptions& options,
+                    StreamMessageReceiver* messageReceiver, PcmStream* stream);
     
     /**
      * Destructor
@@ -105,6 +108,12 @@ private:
     
     /// List of active connections
     std::vector<SRTSOCKET> connections_;
+    
+    /// Message receiver for handling client messages
+    StreamMessageReceiver* messageReceiver_;
+    
+    /// PCM stream to send to clients
+    PcmStream* stream_;
     
     static constexpr auto LOG_TAG = "StreamServerSrt";
 };

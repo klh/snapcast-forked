@@ -70,7 +70,7 @@ void StreamSessionSrt::start()
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         uint16_t client_port = ntohs(client_addr.sin_port);
-        LOG(INFO, LOG_TAG) << "Starting SRT stream session from " << client_ip << ":" << client_port << "\n";
+        LOG(INFO, LOG_TAG) << "Starting SRT stream session from " << client_ip << ":" << client_port << " (SRT protocol)\n";
     }
 
     running_ = true;

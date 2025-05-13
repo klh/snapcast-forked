@@ -72,6 +72,7 @@ boost::system::error_code ClientConnectionSrt::doConnect(boost::asio::ip::basic_
         uint16_t port = endpoint.port();
         
         LOG(INFO, LOG_TAG) << "Connecting to " << host << ":" << port << " using SRT protocol\n";
+    LOG(INFO, LOG_TAG) << "SRT connection attempt started";
         
         // Use a promise to convert async to sync
         std::promise<boost::system::error_code> promise;

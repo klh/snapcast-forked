@@ -26,8 +26,10 @@
 
 using namespace std;
 
-StreamServerSrt::StreamServerSrt(boost::asio::io_context& io_context, size_t port, const srt::SrtOptions& options)
-    : StreamServer(io_context, ServerSettings(), nullptr), port_(port), options_(options), socket_(SRT_INVALID_SOCK), running_(false), io_context_(io_context)
+StreamServerSrt::StreamServerSrt(boost::asio::io_context& io_context, size_t port, const srt::SrtOptions& options,
+                           StreamMessageReceiver* messageReceiver, PcmStream* stream)
+    : StreamServer(io_context, ServerSettings(), nullptr), port_(port), options_(options), socket_(SRT_INVALID_SOCK), 
+      running_(false), io_context_(io_context), messageReceiver_(messageReceiver), stream_(stream)
 {
 }
 
@@ -108,7 +110,7 @@ void StreamServerSrt::initSocket()
         throw SnapException("Failed to listen on SRT socket: " + string(srt_getlasterror_str()));
     }
     
-    LOG(INFO, LOG_TAG) << "Listening on port " << port_ << "\n";
+    LOG(INFO, LOG_TAG) << "Listening on port " << port_ << " (SRT protocol)\n";
 }
 
 void StreamServerSrt::acceptConnection()
@@ -285,19 +287,38 @@ void StreamServerSrt::pollThread()
 
 void StreamServerSrt::handleConnection(SRTSOCKET socket)
 {
-    // This method is called in a separate thread for each client connection
-    // Implement the session logic here
+    try
+    {
+        // Create a session for this connection
+        LOG(INFO, LOG_TAG) << "Creating SRT stream session for socket " << socket << "\n";
+        
+        // Create a new StreamSessionSrt and add it to the sessions
+        auto session = std::make_shared<StreamSessionSrt>(messageReceiver_, socket);
+        
+        // Set the PCM stream
+        session->setPcmStream(stream_);
+        
+        // Start the session
+        session->start();
+        
+        // Add session to the sessions list
+        addSession(std::move(session));
+        
+        LOG(INFO, LOG_TAG) << "SRT stream session started successfully\n";
+    }
+    catch (const std::exception& e)
+    {
+        LOG(ERROR, LOG_TAG) << "Error creating SRT session: " << e.what() << "\n";
+        
+        // Close the socket
+        srt_close(socket);
+        
+        // Remove from connections list
+        std::lock_guard<std::mutex> lock(mutex_);
+        connections_.erase(std::remove(connections_.begin(), connections_.end(), socket), connections_.end());
+    }
     
-    // Create a session for this connection
-    // TODO: Implement the session logic
-    
-    // For now, just log that we have a connection
-    LOG(INFO, LOG_TAG) << "Handling SRT connection on socket " << socket << "\n";
-    
-    // Keep the connection open until the client disconnects
-    // In a real implementation, this would be handled by the session
-    
-    // When the connection is closed, remove it from the connections list
+    // The session will handle the connection until it's closed
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = std::find(connections_.begin(), connections_.end(), socket);
