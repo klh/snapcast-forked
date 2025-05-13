@@ -71,7 +71,7 @@ boost::system::error_code ClientConnectionSrt::doConnect(boost::asio::ip::basic_
         std::string host = endpoint.address().to_string();
         uint16_t port = endpoint.port();
         
-        LOG(INFO, LOG_TAG) << "Connecting to " << host << ":" << port << "\n";
+        LOG(INFO, LOG_TAG) << "Connecting to " << host << ":" << port << " using SRT protocol\n";
         
         // Use a promise to convert async to sync
         std::promise<boost::system::error_code> promise;
@@ -90,7 +90,7 @@ boost::system::error_code ClientConnectionSrt::doConnect(boost::asio::ip::basic_
         }
         else
         {
-            LOG(INFO, LOG_TAG) << "Connected to " << host << ":" << port << "\n";
+            LOG(INFO, LOG_TAG) << "Connected to " << host << ":" << port << " using SRT protocol\n";
         }
     }
     catch (const std::exception& e)

@@ -58,6 +58,21 @@ void StreamSessionSrt::start()
     if (running_)
         return;
 
+    // Get client info for logging
+    sockaddr_in client_addr;
+    int addr_len = sizeof(client_addr);
+    if (srt_getpeername(socket_, reinterpret_cast<sockaddr*>(&client_addr), &addr_len) == SRT_ERROR)
+    {
+        LOG(ERROR, LOG_TAG) << "Failed to get peer name: " << srt_getlasterror_str() << "\n";
+    }
+    else
+    {
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+        uint16_t client_port = ntohs(client_addr.sin_port);
+        LOG(INFO, LOG_TAG) << "Starting SRT stream session from " << client_ip << ":" << client_port << "\n";
+    }
+
     running_ = true;
     read_thread_ = std::thread(&StreamSessionSrt::read, this);
 }

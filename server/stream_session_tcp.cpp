@@ -49,6 +49,7 @@ StreamSessionTcp::~StreamSessionTcp()
 
 void StreamSessionTcp::start()
 {
+    LOG(INFO, LOG_TAG) << "Starting TCP stream session from " << socket_.remote_endpoint().address().to_string() << ":" << socket_.remote_endpoint().port() << "\n";
     read_next();
 }
 

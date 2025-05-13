@@ -55,11 +55,16 @@ StreamSessionWebsocket::~StreamSessionWebsocket()
 void StreamSessionWebsocket::start()
 {
     // Read a message
-    LOG(DEBUG, LOG_TAG) << "start\n";
     if (is_ssl_)
+    {
+        LOG(INFO, LOG_TAG) << "Starting SSL WebSocket stream session from " << ssl_ws_->next_layer().next_layer().remote_endpoint().address().to_string() << ":" << ssl_ws_->next_layer().next_layer().remote_endpoint().port() << "\n";
         ssl_ws_->binary(true);
+    }
     else
+    {
+        LOG(INFO, LOG_TAG) << "Starting WebSocket stream session from " << tcp_ws_->next_layer().remote_endpoint().address().to_string() << ":" << tcp_ws_->next_layer().remote_endpoint().port() << "\n";
         tcp_ws_->binary(true);
+    }
     do_read_ws();
 }
 
